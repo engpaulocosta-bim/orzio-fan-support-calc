@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 from typing import Optional
 from ..models import ReportContext
+from ..assessment import assess_result
 
 # Cores Orzio
 BLUE    = (0.08, 0.28, 0.90)   # #1447E6
@@ -112,6 +113,51 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
 
     inp = ctx.fan_support_input
     res = ctx.fan_support_result
+    assessment = assess_result(res) if res else None
+
+    def fmt_pct(value: float | None) -> str:
+        return "n/a" if value is None else f"{value:.1f}%"
+
+    if assessment:
+        if assessment.is_failure:
+            assessment_bg = RED_BG
+        elif assessment.is_borderline:
+            assessment_bg = WARN_BG
+        else:
+            assessment_bg = GREEN_BG
+
+        story.append(Paragraph("RESUMO EXECUTIVO", S_h1))
+        summary_data = [
+            [
+                Paragraph("<b>Diagnóstico</b>", S_center),
+                Paragraph("<b>Utilização governante</b>", S_center),
+                Paragraph("<b>Conservadorismo</b>", S_center),
+                Paragraph("<b>Uso do limite</b>", S_center),
+            ],
+            [
+                Paragraph(f"<b>{assessment.headline}</b>", S_center),
+                Paragraph(fmt_pct(assessment.utilization_percent), S_center),
+                Paragraph(fmt_pct(assessment.conservatism_percent), S_center),
+                Paragraph(fmt_pct(assessment.limit_percent), S_center),
+            ],
+        ]
+        summary_table = Table(summary_data, colWidths=[W * 0.34, W * 0.22, W * 0.22, W * 0.22])
+        summary_table.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), _color(BLUE)),
+            ("TEXTCOLOR", (0,0), (-1,0), _color(WHITE)),
+            ("BACKGROUND", (0,1), (-1,1), _color(assessment_bg)),
+            ("GRID", (0,0), (-1,-1), 0.4, _color((0.80, 0.85, 0.92))),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ("TOPPADDING", (0,0), (-1,-1), 6),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+        ]))
+        story.append(summary_table)
+        story.append(Spacer(1, 2*mm))
+        story.append(Paragraph(
+            f"{assessment.summary} Verificação governante: <b>{assessment.governing_item}</b>.",
+            S_body,
+        ))
+        story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════
     # 1. IDENTIFICAÇÃO
@@ -282,19 +328,47 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     # 8. VERIFICAÇÃO FINAL
     # ══════════════════════════════════════════════════════════════════════════
     story.append(Paragraph("8. VERIFICAÇÃO FINAL", S_h1))
-    if res:
+    if res and assessment:
         status_val = res.status.value
-        bg = _STATUS_COLORS.get(status_val, WHITE)
-        status_data = [[
-            Paragraph(f"Estado global: <b>{status_val}</b>", S_body),
-            Paragraph(f"Classificação: <b>{res.classification_level.value}</b>", S_body),
-        ]]
-        st = Table(status_data, colWidths=[W * 0.50, W * 0.50])
+        bg = RED_BG if assessment.is_failure else WARN_BG if assessment.is_borderline else GREEN_BG
+        status_data = [
+            [
+                Paragraph("<b>Conclusão</b>", S_body),
+                Paragraph(f"<b>{assessment.headline}</b>", S_body),
+            ],
+            [
+                Paragraph("<b>Estado técnico</b>", S_body),
+                Paragraph(status_val, S_body),
+            ],
+            [
+                Paragraph("<b>Classificação</b>", S_body),
+                Paragraph(res.classification_level.value, S_body),
+            ],
+            [
+                Paragraph("<b>Verificação governante</b>", S_body),
+                Paragraph(assessment.governing_item, S_body),
+            ],
+            [
+                Paragraph("<b>Utilização governante</b>", S_body),
+                Paragraph(fmt_pct(assessment.utilization_percent), S_body),
+            ],
+            [
+                Paragraph("<b>Conservadorismo informativo</b>", S_body),
+                Paragraph(fmt_pct(assessment.conservatism_percent), S_body),
+            ],
+            [
+                Paragraph("<b>Nota</b>", S_body),
+                Paragraph(assessment.summary, S_body),
+            ],
+        ]
+        st = Table(status_data, colWidths=[W * 0.34, W * 0.66])
         st.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,-1), _color(bg)),
-            ("GRID", (0,0), (-1,-1), 0.5, _color(BLUE)),
-            ("TOPPADDING", (0,0), (-1,-1), 6),
-            ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+            ("BACKGROUND", (0,0), (-1,0), _color(bg)),
+            ("BACKGROUND", (0,1), (0,-1), _color(LIGHT)),
+            ("GRID", (0,0), (-1,-1), 0.4, _color((0.80, 0.85, 0.92))),
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+            ("TOPPADDING", (0,0), (-1,-1), 5),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 5),
         ]))
         story.append(st)
     story.append(Spacer(1, 4*mm))

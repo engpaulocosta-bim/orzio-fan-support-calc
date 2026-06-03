@@ -5,6 +5,7 @@ import io
 from pathlib import Path
 from typing import Optional
 from ..models import ReportContext
+from ..assessment import assess_result
 
 
 def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None) -> bytes:
@@ -19,6 +20,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
     wb = openpyxl.Workbook()
     inp = ctx.fan_support_input
     res = ctx.fan_support_result
+    assessment = assess_result(res) if res else None
 
     BLUE_HEX   = "1447E6"
     LIGHT_HEX  = "EFF4FE"
@@ -60,6 +62,10 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         ]
     if res:
         kv_data += [
+            ("Diagnóstico", assessment.headline if assessment else "—"),
+            ("Verificação governante", assessment.governing_item if assessment else "—"),
+            ("Utilização governante [%]", round(assessment.utilization_percent, 1) if assessment and assessment.utilization_percent is not None else "—"),
+            ("Conservadorismo informativo [%]", round(assessment.conservatism_percent, 1) if assessment and assessment.conservatism_percent is not None else "—"),
             ("Perfil seleccionado", res.recommended_section.designation if res.recommended_section else "—"),
             ("Utilização máx. secção", res.section_verification.utilization_ratio if res.section_verification else "—"),
             ("Estado global", res.status.value),
@@ -168,10 +174,17 @@ def generate_csv(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     """Gera CSV resumo de uma linha (útil para batch)."""
     inp = ctx.fan_support_input
     res = ctx.fan_support_result
+    assessment = assess_result(res) if res else None
 
     fields = {
         "support_tag": ctx.support_tag,
         "project": ctx.project_name,
+        "diagnosis": assessment.headline if assessment else "",
+        "governing_item": assessment.governing_item if assessment else "",
+        "governing_utilization_pct": assessment.utilization_percent if assessment else "",
+        "conservatism_pct": assessment.conservatism_percent if assessment else "",
+        "limit_usage_pct": assessment.limit_percent if assessment else "",
+        "exceedance_pct": assessment.exceedance_percent if assessment else "",
         "support_type": inp.support_type.value if inp else "",
         "country": inp.country.value if inp else "",
         "total_weight_kg": inp.total_operating_weight_kg if inp else "",

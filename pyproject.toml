@@ -7,6 +7,8 @@ name = "sfsc"
 version = "1.0.0"
 description = "Steel Fan Support Calc — Dimensionamento de suportes metálicos para ventiladores industriais"
 authors = [{name = "Tensor - Construcao Civil Lda"}]
+readme = "README.md"
+license = {file = "LICENSE"}
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.5.0",
@@ -16,10 +18,15 @@ dependencies = [
     "openpyxl>=3.1.2",
     "pandas>=2.1.0",
     "streamlit>=1.30.0",
+    "pywebview>=6.2.1",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4.0", "pytest-cov>=4.1.0"]
+
+[project.urls]
+Repository = "https://github.com/engpaulocosta-bim/orzio-fan-support-calc"
+Releases = "https://github.com/engpaulocosta-bim/orzio-fan-support-calc/releases"
 
 [tool.setuptools.packages.find]
 where = ["src"]

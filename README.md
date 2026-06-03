@@ -1,0 +1,160 @@
+# SFSC - Steel Fan Support Calc
+
+SFSC is a Streamlit-based engineering application for sizing and verifying steel supports for industrial fans. The project combines load evaluation, seismic inputs, steel section selection, support verification, base plate checks, anchor checks, and exportable engineering reports in a single workflow.
+
+The repository is structured for both developer usage and portable Windows desktop distribution. It includes the calculation engine, YAML-based catalogs, test coverage, PyInstaller packaging, a native desktop shell, and a PowerShell release publishing script.
+
+## Highlights
+
+- Support sizing and verification workflows from the same interface
+- Multiple support families: `hanger`, `cantilever_1`, `cantilever_2`, `cantilever_3`, `pedestal`, and `combined`
+- Country and code-aware behavior for Portugal, Spain, Ireland, UK, France, Brazil, Chile, and generic EU cases
+- Steel section selection from catalog data for `HEA`, `HEB`, `IPE`, `UPN`, and `RHS`
+- Base plate and anchor checks when enabled
+- Export outputs in PDF, Excel, and CSV
+- Portable Windows desktop packaging with PyInstaller
+- Native desktop window powered by `pywebview`, without opening Chrome or another browser tab
+- Automated GitHub Release publication for desktop artifacts
+
+## Repository Structure
+
+```text
+.
+|-- app.py
+|-- src/sfsc/
+|   |-- catalogs/
+|   |-- engines/
+|   |-- reports/
+|   `-- ui/
+|-- data/catalogs/
+|-- tests/
+|-- build_desktop/
+|   |-- sfsc.spec
+|   `-- publish_release.ps1
+|-- assumptions.yaml
+|-- seismic_zones.yaml
+|-- standards_registry.yaml
+`-- steel_grades.yaml
+```
+
+## Functional Scope
+
+The application currently supports:
+
+- Interactive input for project data, fan units, geometry, seismic zone, steel grade, anti-vibration configuration, and optional base plate design
+- Section recommendation and verification using the internal calculation engine
+- Engineering outputs grouped into section checks, base plate checks, anchor checks, combinations, warnings, and references
+- Report generation for PDF calculation memoranda, Excel workbooks, and CSV summary files
+- Classification of results including `PASS`, `FAIL`, `MARGINAL`, and `REQUIRES_SPECIALIST`
+
+The current UI describes the intended operating range as industrial fan supports in the approximate range of `35-600 kg`. Heavier or atypical cases may be flagged for specialist review.
+
+## Requirements
+
+- Python `3.10+`
+- Windows is recommended for portable desktop packaging
+- Optional tooling for distribution: `pyinstaller`
+
+## Getting Started
+
+### 1. Create a virtual environment
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+### 2. Install dependencies
+
+```powershell
+pip install -r requirements.txt
+```
+
+For development and tests:
+
+```powershell
+pip install -e .[dev]
+```
+
+### 3. Run the application
+
+```powershell
+streamlit run app.py
+```
+
+There is also a convenience launcher for Windows:
+
+```powershell
+.\Start SFSC.bat
+```
+
+By default, the batch launcher starts Streamlit on port `8502`.
+
+## Testing
+
+Run the automated test suite with:
+
+```powershell
+pytest
+```
+
+The repository includes coverage for section catalogs, steel grades, seismic data, loads, section verification, and end-to-end calculation flows.
+
+## Portable Desktop Build
+
+### Build the portable executable
+
+```powershell
+pyinstaller build_desktop\sfsc.spec --noconfirm
+```
+
+This produces a portable executable at:
+
+```text
+dist\SFSC.exe
+```
+
+The executable runs as a standalone desktop application. It starts its internal Streamlit backend on `127.0.0.1`, opens the interface inside a native app window, and does not install files into `%LOCALAPPDATA%` or create Start Menu entries.
+
+## Release Workflow
+
+The repository includes a release helper script:
+
+```powershell
+PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File .\build_desktop\publish_release.ps1
+```
+
+The script resolves the GitHub repository from `origin`, reads credentials from the configured Git credential helper, creates the GitHub Release if needed, and uploads the portable executable.
+
+## Generated Outputs
+
+At runtime, the application can generate:
+
+- PDF calculation memorandum
+- Excel workbook with summary, combinations, section data, base plate data, and anchor data
+- CSV one-line summary for downstream workflows
+
+At packaging time, the project can generate:
+
+- `dist\SFSC.exe` portable Windows executable
+
+## Engineering and Usage Notes
+
+- This software is intended to support engineering workflows, not replace engineering judgment.
+- National code behavior depends on the embedded enums, assumptions, and YAML datasets shipped with the repository.
+- Results outside the covered scope may be marked as `REQUIRES_SPECIALIST` or include warnings and limitations in the report context.
+- Before using the tool in production, confirm the assumptions, catalogs, and standards data match your governing design basis and internal QA process.
+
+## Development Notes
+
+- Main entry point: `app.py`
+- UI layer: `src/sfsc/ui/streamlit_app.py`
+- Core calculation orchestration: `src/sfsc/engines/selector.py`
+- YAML-backed configuration loading: `src/sfsc/config.py`
+- Packaging scripts and assets: `build_desktop/`
+
+## License
+
+This repository is distributed under the proprietary license in [LICENSE](LICENSE).
+
+Copyright (c) 2026 Tensor - Construcao Civil Lda. All rights reserved.
