@@ -13,7 +13,7 @@ from sfsc.enums import (
 )
 from sfsc.models import FanSupportInput, FanUnit
 from sfsc.catalogs.seismic_catalog import list_zones
-from sfsc.engines.selector import run_full_calculation
+from sfsc.engines.selector import run_full_calculation, context_for_section_choice
 from sfsc.reports.memorial_pdf import generate_pdf
 from sfsc.reports.exports import generate_excel, generate_csv
 from sfsc.assessment import assess_result
@@ -94,16 +94,9 @@ def main() -> None:
             csub = st.radio("Subtipo consola", ["pure", "bracketed"], horizontal=True)
             cantilever_subtype = CantileverSubtype(csub)
 
-        operation_mode_val = st.radio("Modo", ["dimension", "verify"], horizontal=True,
-                                       format_func=lambda x: "Dimensionar" if x=="dimension" else "Verificar")
-        operation_mode = OperationMode(operation_mode_val)
-
-        received_section_tag    = None
+        operation_mode = OperationMode.DIMENSION
+        received_section_tag = None
         received_section_family = None
-        if operation_mode == OperationMode.VERIFY:
-            fam_val = st.selectbox("Família do perfil", [e.value for e in SectionFamily if e != SectionFamily.CUSTOM])
-            received_section_family = SectionFamily(fam_val)
-            received_section_tag = st.text_input("Designação (ex: HEB200)", value="HEB200")
 
         # ── País e Sismo ──
         st.subheader("4. País / Norma / Sismo")
@@ -174,7 +167,7 @@ def main() -> None:
 
         # ── Botão Calcular ──
         st.divider()
-        calc_btn = st.button("▶ Calcular", type="primary", use_container_width=True)
+        calc_btn = st.button("▶ Calcular", type="primary", width="stretch")
 
     # ════════════════════════════════════════════════════════════════════════════════
     # ÁREA PRINCIPAL — resultados
@@ -230,6 +223,9 @@ def main() -> None:
             with st.spinner("A calcular…"):
                 st.session_state["sfsc_ctx"] = run_full_calculation(inp)
                 st.session_state["sfsc_tag"] = support_tag
+                result = st.session_state["sfsc_ctx"].fan_support_result
+                if result and result.recommended_section:
+                    st.session_state["sfsc_selected_section"] = result.recommended_section.designation
             st.session_state.pop("sfsc_error", None)
         except Exception as e:
             st.session_state["sfsc_ctx"] = None
@@ -244,6 +240,33 @@ def main() -> None:
     if ctx is not None:
         try:
             support_tag = st.session_state.get("sfsc_tag", support_tag)
+            base_ctx = ctx
+            base_res = base_ctx.fan_support_result
+            if base_res and base_res.section_options:
+                labels = {
+                    opt.section.designation: (
+                        f"{opt.section.designation} | {opt.section.family.value} | "
+                        f"η={opt.utilization_ratio:.3f} | {opt.section.weight_kgm:.1f} kg/m | "
+                        f"{opt.status.value}"
+                    )
+                    for opt in base_res.section_options
+                }
+                options = list(labels.keys())
+                saved = st.session_state.get("sfsc_selected_section")
+                default = saved if saved in options else (
+                    base_res.recommended_section.designation
+                    if base_res.recommended_section and base_res.recommended_section.designation in options
+                    else options[0]
+                )
+                selected_section = st.selectbox(
+                    "Perfil ativo para resultados e documentos",
+                    options,
+                    index=options.index(default),
+                    format_func=lambda value: labels[value],
+                )
+                st.session_state["sfsc_selected_section"] = selected_section
+                ctx = context_for_section_choice(base_ctx, selected_section)
+
             res = ctx.fan_support_result
             assert res is not None
             assessment = assess_result(res)
@@ -267,10 +290,55 @@ def main() -> None:
             else:
                 st.success(assessment_message)
 
-            tabs = st.tabs(["Secção", "Mesa", "Ancoragens", "Combinações", "Avisos", "Citações"])
+            tabs = st.tabs(["Secção", "Mesa", "Ancoragens", "Ligações", "Combinações", "Avisos", "Citações"])
 
             # ── Tab 1: Secção ──────────────────────────────────────────────────────
             with tabs[0]:
+                if base_res and base_res.section_options:
+                    import pandas as pd
+                    st.subheader("Perfis aprovados")
+                    option_rows = []
+                    for opt in base_res.section_options:
+                        option_rows.append({
+                            "Perfil": opt.section.designation,
+                            "Família": opt.section.family.value,
+                            "Peso [kg/m]": round(opt.section.weight_kgm, 1),
+                            "η máx.": opt.utilization_ratio,
+                            "Governa": opt.governing_check,
+                            "Estado": opt.status.value,
+                            "Ativo": "Sim" if res.recommended_section and opt.section.designation == res.recommended_section.designation else "",
+                        })
+                    st.dataframe(pd.DataFrame(option_rows), hide_index=True, width="stretch")
+
+                    for opt in base_res.section_options:
+                        expanded = bool(
+                            res.recommended_section
+                            and opt.section.designation == res.recommended_section.designation
+                        )
+                        with st.expander(
+                            f"{opt.section.designation} - η={opt.utilization_ratio:.3f} - {opt.status.value}",
+                            expanded=expanded,
+                        ):
+                            sec_opt = opt.section
+                            st.dataframe({
+                                "Propriedade": ["Família","h [mm]","b [mm]","tw [mm]","tf [mm]","A [cm²]","I_y [cm⁴]","W_el,y [cm³]","Peso [kg/m]"],
+                                "Valor": [
+                                    sec_opt.family.value,
+                                    f"{sec_opt.h_mm:g}",
+                                    f"{sec_opt.b_mm:g}",
+                                    f"{sec_opt.tw_mm:g}",
+                                    f"{sec_opt.tf_mm:g}",
+                                    f"{sec_opt.A_cm2:g}",
+                                    f"{sec_opt.I_y_cm4:g}",
+                                    f"{sec_opt.W_el_y_cm3:g}",
+                                    f"{sec_opt.weight_kgm:g}",
+                                ],
+                            }, hide_index=True)
+                            st.dataframe({
+                                "Check": list(opt.utilization_by_check.keys()),
+                                "η": [round(v, 4) for v in opt.utilization_by_check.values()],
+                            }, hide_index=True)
+
                 if res.recommended_section:
                     sec = res.recommended_section
                     c1, c2 = st.columns(2)
@@ -280,7 +348,16 @@ def main() -> None:
                         st.markdown(f"Família: `{sec.family.value}` | Aço: `{_grade}`")
                         st.dataframe({
                             "Propriedade": ["h [mm]","b [mm]","tw [mm]","tf [mm]","A [cm²]","I_y [cm⁴]","W_el,y [cm³]","Peso [kg/m]"],
-                            "Valor": [sec.h_mm, sec.b_mm, sec.tw_mm, sec.tf_mm, sec.A_cm2, sec.I_y_cm4, sec.W_el_y_cm3, sec.weight_kgm],
+                            "Valor": [
+                                f"{sec.h_mm:g}",
+                                f"{sec.b_mm:g}",
+                                f"{sec.tw_mm:g}",
+                                f"{sec.tf_mm:g}",
+                                f"{sec.A_cm2:g}",
+                                f"{sec.I_y_cm4:g}",
+                                f"{sec.W_el_y_cm3:g}",
+                                f"{sec.weight_kgm:g}",
+                            ],
                         }, hide_index=True)
                     with c2:
                         if res.section_verification:
@@ -305,6 +382,43 @@ def main() -> None:
                         st.metric(f"Parafusos ventilador → chapa", f"M{bp.bolt_diameter_mm:.0f} × {bp.n_bolts_fan}")
                         st.metric("η bolt (fan)", f"{bp.bolt_utilization_fan:.3f}")
                         st.metric("Soldadura garganta", f"{bp.weld_throat_mm:.1f} mm  η={bp.weld_utilization:.3f}")
+                    st.subheader("Furação e bordo livre")
+                    st.dataframe({
+                        "Item": [
+                            "Furo ancoragem [mm]",
+                            "Espaçamento X [mm]",
+                            "Espaçamento Y [mm]",
+                            "Mín. espaçamento [mm]",
+                            "Bordo X [mm]",
+                            "Bordo Y [mm]",
+                            "Mín. bordo [mm]",
+                            "Geometria OK",
+                        ],
+                        "Valor": [
+                            f"{bp.hole_diameter_mm:.1f}",
+                            f"{bp.anchor_spacing_x_mm:.0f}",
+                            f"{bp.anchor_spacing_y_mm:.0f}",
+                            f"{bp.min_spacing_mm:.1f}",
+                            f"{bp.edge_distance_x_mm:.0f}",
+                            f"{bp.edge_distance_y_mm:.0f}",
+                            f"{bp.min_edge_distance_mm:.1f}",
+                            "Sim" if bp.spacing_ok and bp.edge_distance_ok else "Não",
+                        ],
+                    }, hide_index=True)
+                    st.subheader("Betão / arrancamento")
+                    st.dataframe({
+                        "Verificação": ["Cone de betão", "Pull-out", "Pry-out"],
+                        "Capacidade [kN]": [
+                            bp.concrete_cone_capacity_kN,
+                            bp.pullout_capacity_kN,
+                            bp.pryout_capacity_kN,
+                        ],
+                        "η": [
+                            bp.utilization_concrete_cone,
+                            bp.utilization_pullout,
+                            bp.utilization_pryout,
+                        ],
+                    }, hide_index=True)
                 else:
                     st.info("Mesa não activada neste cálculo.")
 
@@ -321,8 +435,56 @@ def main() -> None:
                     c3.metric("η interacção", f"{anc.utilization_combined:.3f}")
                     st.caption(f"Cláusula: {anc.code_clause}")
 
-            # ── Tab 4: Combinações ─────────────────────────────────────────────────
+            # ── Tab 4: Ligações ────────────────────────────────────────────────────
             with tabs[3]:
+                if res.metal_connection:
+                    mc = res.metal_connection
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Tipo", mc.connection_type)
+                    c2.metric("Parafusos", f"M{mc.bolt_diameter_mm:.0f} × {mc.n_bolts}")
+                    c3.metric("η global", f"{mc.utilization_ratio:.3f}")
+                    st.dataframe({
+                        "Item": [
+                            "Chapa ligação [mm]",
+                            "Furo [mm]",
+                            "Espaçamento fornecido [mm]",
+                            "Espaçamento mínimo [mm]",
+                            "Bordo fornecido [mm]",
+                            "Bordo mínimo [mm]",
+                            "Capacidade corte parafusos [kN]",
+                            "Capacidade tração parafusos [kN]",
+                            "η corte parafusos",
+                            "η tração parafusos",
+                            "Solda a [mm]",
+                            "Comprimento solda [mm]",
+                            "η solda",
+                            "Stiffener",
+                            "Cantoneira",
+                            "Diagonal",
+                        ],
+                        "Valor": [
+                            f"{mc.plate_thickness_mm:.1f}",
+                            f"{mc.bolt_hole_diameter_mm:.1f}",
+                            f"{mc.provided_spacing_mm:.1f}",
+                            f"{mc.min_spacing_mm:.1f}",
+                            f"{mc.provided_edge_distance_mm:.1f}",
+                            f"{mc.min_edge_distance_mm:.1f}",
+                            f"{mc.bolt_shear_capacity_kN:.2f}",
+                            f"{mc.bolt_tension_capacity_kN:.2f}",
+                            f"{mc.utilization_bolt_shear:.3f}",
+                            f"{mc.utilization_bolt_tension:.3f}",
+                            f"{mc.weld_throat_mm:.1f}",
+                            f"{mc.weld_length_mm:.0f}",
+                            f"{mc.weld_utilization:.3f}",
+                            f"{mc.stiffener_thickness_mm:.1f} mm" if mc.stiffener_required else "Não",
+                            mc.cleat_angle or "n/a",
+                            mc.diagonal_member or "n/a",
+                        ],
+                    }, hide_index=True)
+                    st.caption(f"Cláusula: {mc.code_clause}")
+
+            # ── Tab 5: Combinações ─────────────────────────────────────────────────
+            with tabs[4]:
                 if res.all_combinations:
                     import pandas as pd
                     rows = []
@@ -336,10 +498,10 @@ def main() -> None:
                             "Gov.": "★" if c.governing else "",
                             "Descrição": c.description,
                         })
-                    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+                    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
-            # ── Tab 5: Avisos ──────────────────────────────────────────────────────
-            with tabs[4]:
+            # ── Tab 6: Avisos ──────────────────────────────────────────────────────
+            with tabs[5]:
                 for w in ctx.warnings:
                     if w.severity == "CRITICAL":
                         st.error(f"**[{w.code}]** {w.message}")
@@ -356,14 +518,14 @@ def main() -> None:
                     for lim in ctx.limitations:
                         st.caption(f"• {lim}")
 
-            # ── Tab 6: Citações ────────────────────────────────────────────────────
-            with tabs[5]:
+            # ── Tab 7: Citações ────────────────────────────────────────────────────
+            with tabs[6]:
                 import pandas as pd
                 cit_rows = [{"Norma": c.standard_id, "Edição": c.edition,
                               "Cláusula": c.clause, "Descrição": c.description}
                              for c in ctx.citations]
                 if cit_rows:
-                    st.dataframe(pd.DataFrame(cit_rows), hide_index=True, use_container_width=True)
+                    st.dataframe(pd.DataFrame(cit_rows), hide_index=True, width="stretch")
 
             # ── Exportar ───────────────────────────────────────────────────────────
             st.divider()
@@ -377,7 +539,7 @@ def main() -> None:
                     data=pdf_bytes,
                     file_name=f"sfsc_{support_tag}_{datetime.date.today()}.pdf",
                     mime="application/pdf",
-                    use_container_width=True,
+                    width="stretch",
                 )
             with col_e2:
                 xlsx_bytes = generate_excel(ctx)
@@ -386,7 +548,7 @@ def main() -> None:
                     data=xlsx_bytes,
                     file_name=f"sfsc_{support_tag}_{datetime.date.today()}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
+                    width="stretch",
                 )
             with col_e3:
                 csv_str = generate_csv(ctx)
@@ -395,7 +557,7 @@ def main() -> None:
                     data=csv_str,
                     file_name=f"sfsc_{support_tag}_{datetime.date.today()}.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    width="stretch",
                 )
 
         except Exception as e:

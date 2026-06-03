@@ -96,12 +96,78 @@ def calculate_base_plate(
     # (estrutura metálica = perfis do suporte)
     n_bolts_str = 4
     d_bolt_str_mm = 20.0
+    hole_diameter_mm = d_bolt_str_mm + 2.0
     Fv_Rd_str_kN = _bolt_shear_capacity(d_bolt_str_mm, grade="8.8")
     eta_str = (P_kN / n_bolts_str) / Fv_Rd_str_kN
 
     while eta_str > 0.90 and n_bolts_str < 16:
         n_bolts_str += 2
         eta_str = (P_kN / n_bolts_str) / Fv_Rd_str_kN
+
+    # ── Furação, espaçamentos mínimos e bordo livre ───────────────────────────
+    # Regras geométricas simplificadas EN 1993-1-8: p_min = 2.2*d0, e_min = 1.2*d0.
+    # Para ancoragens em betão usa-se ainda hef para reduzir a capacidade do cone.
+    min_spacing_mm = 2.2 * hole_diameter_mm
+    min_edge_distance_mm = 1.2 * hole_diameter_mm
+    preferred_edge_mm = max(60.0, 3.0 * d_bolt_str_mm)
+    edge_x_mm = min(preferred_edge_mm, max(min_edge_distance_mm, L_base / 3.0))
+    edge_y_mm = min(preferred_edge_mm, max(min_edge_distance_mm, B_base / 3.0))
+    spacing_x_mm = max(0.0, L_base - 2.0 * edge_x_mm)
+    spacing_y_mm = max(0.0, B_base - 2.0 * edge_y_mm)
+    spacing_ok = spacing_x_mm >= min_spacing_mm and spacing_y_mm >= min_spacing_mm
+    edge_ok = edge_x_mm >= min_edge_distance_mm and edge_y_mm >= min_edge_distance_mm
+
+    if not spacing_ok:
+        warnings.append(
+            "Furação da base plate com espaçamento inferior ao mínimo simplificado. "
+            "Aumentar dimensões da chapa ou rever layout de ancoragens."
+        )
+    if not edge_ok:
+        warnings.append(
+            "Bordo livre da furação inferior ao mínimo simplificado. "
+            "Aumentar chapa ou afastar ancoragens do bordo."
+        )
+
+    # ── Verificações adicionais de betão para o grupo de ancoragens ───────────
+    hef_mm = max(8.0 * d_bolt_str_mm, 100.0)
+    gamma_concrete = 1.5
+    n_eff = max(1, n_bolts_str)
+    N_Ed_kN = P_kN
+    V_Ed_kN = abs(combination.V_y_kN)
+
+    # Cone de betão: fórmula simplificada proporcional a sqrt(fck)*hef^1.5,
+    # penalizada por bordo e espaçamento curtos.
+    edge_factor = min(1.0, min(edge_x_mm, edge_y_mm) / (1.5 * hef_mm))
+    spacing_factor = min(1.0, min(spacing_x_mm, spacing_y_mm) / (3.0 * hef_mm)) if n_eff > 1 else 1.0
+    cone_single_kN = 7.2 * math.sqrt(fck) * (hef_mm ** 1.5) / 1000.0 / gamma_concrete
+    concrete_cone_capacity_kN = n_eff * cone_single_kN * edge_factor * spacing_factor
+
+    # Pull-out por aderência: perímetro * hef * fbd.
+    fbd_mpa = 0.7 * 2.25 * (fck / 25.0) ** 0.5
+    pullout_capacity_kN = n_eff * math.pi * d_bolt_str_mm * hef_mm * fbd_mpa / 1000.0 / gamma_concrete
+
+    # Pry-out em corte, conservativamente relacionado com capacidade de cone.
+    pryout_capacity_kN = 2.0 * concrete_cone_capacity_kN
+
+    eta_cone = N_Ed_kN / concrete_cone_capacity_kN if concrete_cone_capacity_kN > 0 else 99.0
+    eta_pullout = N_Ed_kN / pullout_capacity_kN if pullout_capacity_kN > 0 else 99.0
+    eta_pryout = V_Ed_kN / pryout_capacity_kN if pryout_capacity_kN > 0 else 0.0
+
+    if eta_cone > 1.0:
+        warnings.append(
+            f"Cone de betão insuficiente no modelo simplificado (η={eta_cone:.2f}). "
+            "Rever embebimento, distância ao bordo e classe do betão."
+        )
+    if eta_pullout > 1.0:
+        warnings.append(
+            f"Arrancamento/pull-out insuficiente no modelo simplificado (η={eta_pullout:.2f}). "
+            "Aumentar embebimento ou diâmetro das ancoragens."
+        )
+    if eta_pryout > 1.0:
+        warnings.append(
+            f"Pry-out por corte insuficiente no modelo simplificado (η={eta_pryout:.2f}). "
+            "Rever grupo de ancoragens."
+        )
 
     # ── Soldadura chapa → perfil ──────────────────────────────────────────────
     # Cordão filete em torno do banzo do perfil
@@ -134,7 +200,17 @@ def calculate_base_plate(
     # ── Verificação geral ─────────────────────────────────────────────────────
     eta_bearing = sigma_bearing_mpa / f_jd
     eta_bending = (M_plate_Nmm_mm * gamma_M0) / (fy_mpa * t_plate_mm**2 / 6.0)
-    eta_overall = max(eta_bearing, eta_bending, eta_fan, eta_str, eta_weld)
+    eta_overall = max(
+        eta_bearing,
+        eta_bending,
+        eta_fan,
+        eta_str,
+        eta_weld,
+        eta_cone,
+        eta_pullout,
+        eta_pryout,
+        1.01 if not (spacing_ok and edge_ok) else 0.0,
+    )
 
     if eta_overall > 1.0:
         status = CheckerStatus.FAIL
@@ -162,6 +238,21 @@ def calculate_base_plate(
         bolt_utilization_fan=round(eta_fan, 4),
         n_bolts_structure=n_bolts_str,
         bolt_utilization_structure=round(eta_str, 4),
+        hole_diameter_mm=round(hole_diameter_mm, 1),
+        anchor_spacing_x_mm=round(spacing_x_mm, 0),
+        anchor_spacing_y_mm=round(spacing_y_mm, 0),
+        edge_distance_x_mm=round(edge_x_mm, 0),
+        edge_distance_y_mm=round(edge_y_mm, 0),
+        min_spacing_mm=round(min_spacing_mm, 1),
+        min_edge_distance_mm=round(min_edge_distance_mm, 1),
+        spacing_ok=spacing_ok,
+        edge_distance_ok=edge_ok,
+        concrete_cone_capacity_kN=round(concrete_cone_capacity_kN, 2),
+        pullout_capacity_kN=round(pullout_capacity_kN, 2),
+        pryout_capacity_kN=round(pryout_capacity_kN, 2),
+        utilization_concrete_cone=round(eta_cone, 4),
+        utilization_pullout=round(eta_pullout, 4),
+        utilization_pryout=round(eta_pryout, 4),
         weld_throat_mm=round(a_plate_mm, 1),
         weld_utilization=round(eta_weld, 4),
         status=status,

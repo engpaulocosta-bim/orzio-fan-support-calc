@@ -302,6 +302,11 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
             ("Flexão da chapa", f"η = {bp.utilization_bending:.3f}"),
             ("Parafusos ventilador → chapa", f"M{bp.bolt_diameter_mm:.0f} × {bp.n_bolts_fan}  (η = {bp.bolt_utilization_fan:.3f})"),
             ("Parafusos chapa → estrutura", f"M20 × {bp.n_bolts_structure}  (η = {bp.bolt_utilization_structure:.3f})"),
+            ("Furação", f"d0={bp.hole_diameter_mm:.1f} mm | p={bp.anchor_spacing_x_mm:.0f}×{bp.anchor_spacing_y_mm:.0f} mm | e={bp.edge_distance_x_mm:.0f}/{bp.edge_distance_y_mm:.0f} mm"),
+            ("Mínimos geométricos", f"p_min={bp.min_spacing_mm:.1f} mm | e_min={bp.min_edge_distance_mm:.1f} mm"),
+            ("Cone de betão", f"N_Rd={bp.concrete_cone_capacity_kN:.2f} kN  (η = {bp.utilization_concrete_cone:.3f})"),
+            ("Arrancamento / pull-out", f"N_Rd={bp.pullout_capacity_kN:.2f} kN  (η = {bp.utilization_pullout:.3f})"),
+            ("Pry-out", f"V_Rd={bp.pryout_capacity_kN:.2f} kN  (η = {bp.utilization_pryout:.3f})"),
             ("Soldadura chapa → perfil (a)", f"{bp.weld_throat_mm:.1f} mm  (η = {bp.weld_utilization:.3f})"),
             ("Cláusula", bp.code_clause),
         ]))
@@ -325,9 +330,30 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════
-    # 8. VERIFICAÇÃO FINAL
+    # 8. LIGAÇÕES METÁLICAS
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("8. VERIFICAÇÃO FINAL", S_h1))
+    if res and res.metal_connection:
+        story.append(Paragraph("8. LIGAÇÕES METÁLICAS", S_h1))
+        mc = res.metal_connection
+        story.append(kv_table([
+            ("Tipo de ligação", mc.connection_type),
+            ("Chapa de ligação", f"{mc.plate_thickness_mm:.1f} mm"),
+            ("Parafusos perfil-perfil", f"M{mc.bolt_diameter_mm:.0f} × {mc.n_bolts} ({mc.bolt_grade}) | d0={mc.bolt_hole_diameter_mm:.1f} mm"),
+            ("Espaçamentos", f"p={mc.provided_spacing_mm:.1f} mm ≥ {mc.min_spacing_mm:.1f} mm | e={mc.provided_edge_distance_mm:.1f} mm ≥ {mc.min_edge_distance_mm:.1f} mm"),
+            ("Capacidade parafusos", f"Corte={mc.bolt_shear_capacity_kN:.2f} kN (η={mc.utilization_bolt_shear:.3f}) | Tração={mc.bolt_tension_capacity_kN:.2f} kN (η={mc.utilization_bolt_tension:.3f})"),
+            ("Soldadura real", f"a={mc.weld_throat_mm:.1f} mm | L={mc.weld_length_mm:.0f} mm | η={mc.weld_utilization:.3f}"),
+            ("Stiffeners", f"{mc.stiffener_thickness_mm:.1f} mm" if mc.stiffener_required else "Não requeridos pelo modelo"),
+            ("Cantoneiras", mc.cleat_angle or "—"),
+            ("Diagonais", mc.diagonal_member or "—"),
+            ("η global", f"{mc.utilization_ratio:.3f}"),
+            ("Cláusula", mc.code_clause),
+        ]))
+        story.append(Spacer(1, 4*mm))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 9. VERIFICAÇÃO FINAL
+    # ══════════════════════════════════════════════════════════════════════════
+    story.append(Paragraph("9. VERIFICAÇÃO FINAL", S_h1))
     if res and assessment:
         status_val = res.status.value
         bg = RED_BG if assessment.is_failure else WARN_BG if assessment.is_borderline else GREEN_BG
@@ -374,9 +400,9 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════
-    # 9. CITAÇÕES NORMATIVAS
+    # 10. CITAÇÕES NORMATIVAS
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("9. CITAÇÕES NORMATIVAS", S_h1))
+    story.append(Paragraph("10. CITAÇÕES NORMATIVAS", S_h1))
     if ctx.citations:
         cit_rows = [[c.standard_id, c.edition or "—", c.clause or "—", c.description or "—"] for c in ctx.citations]
         story.append(data_table(
@@ -387,9 +413,9 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════
-    # 10. LIMITAÇÕES E PRESSUPOSTOS
+    # 11. LIMITAÇÕES E PRESSUPOSTOS
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("10. LIMITAÇÕES E PRESSUPOSTOS", S_h1))
+    story.append(Paragraph("11. LIMITAÇÕES E PRESSUPOSTOS", S_h1))
     if ctx.assumptions_declared:
         story.append(Paragraph("<b>Pressupostos declarados:</b>", S_h2))
         for a_id in ctx.assumptions_declared:
@@ -401,10 +427,10 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════
-    # 11. AVISOS
+    # 12. AVISOS
     # ══════════════════════════════════════════════════════════════════════════
     if ctx.warnings:
-        story.append(Paragraph("11. AVISOS", S_h1))
+        story.append(Paragraph("12. AVISOS", S_h1))
         for w in ctx.warnings:
             sev = w.severity.upper()
             color_map = {"CRITICAL": CORAL, "WARNING": (0.8, 0.5, 0.0), "INFO": GREY}

@@ -19,6 +19,11 @@ def test_get_heb200():
     assert sec.W_el_y_cm3 == pytest.approx(569.6, rel=0.01)
 
 
+def test_get_section_normalises_designation():
+    sec = get_section(SectionFamily.HEB, "heb-200")
+    assert sec.designation == "HEB200"
+
+
 def test_get_ipe_catalog():
     sections = list_sections(SectionFamily.IPE)
     assert len(sections) >= 15

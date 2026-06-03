@@ -19,10 +19,15 @@ def _load_family(family: SectionFamily) -> list[SteelSection]:
 
 
 def get_section(family: SectionFamily, designation: str) -> SteelSection:
+    wanted = _normalise_designation(designation)
     for s in _load_family(family):
-        if s.designation == designation:
+        if _normalise_designation(s.designation) == wanted:
             return s
     raise SectionNotFoundError(family.value, designation)
+
+
+def _normalise_designation(designation: str) -> str:
+    return designation.upper().replace(" ", "").replace("-", "")
 
 
 def list_sections(family: SectionFamily) -> list[SteelSection]:

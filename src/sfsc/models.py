@@ -213,6 +213,21 @@ class BasePlateResult(BaseModel):
     bolt_utilization_fan: float = 0.0
     n_bolts_structure: int = 0
     bolt_utilization_structure: float = 0.0
+    hole_diameter_mm: float = 0.0
+    anchor_spacing_x_mm: float = 0.0
+    anchor_spacing_y_mm: float = 0.0
+    edge_distance_x_mm: float = 0.0
+    edge_distance_y_mm: float = 0.0
+    min_spacing_mm: float = 0.0
+    min_edge_distance_mm: float = 0.0
+    spacing_ok: bool = True
+    edge_distance_ok: bool = True
+    concrete_cone_capacity_kN: float = 0.0
+    pullout_capacity_kN: float = 0.0
+    pryout_capacity_kN: float = 0.0
+    utilization_concrete_cone: float = 0.0
+    utilization_pullout: float = 0.0
+    utilization_pryout: float = 0.0
     weld_throat_mm: float = 0.0
     weld_utilization: float = 0.0
     status: CheckerStatus
@@ -235,6 +250,37 @@ class AnchorResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class MetalConnectionResult(BaseModel):
+    """Resultado simplificado das ligações metálicas do suporte."""
+    connection_type: str
+    plate_thickness_mm: float
+    bolt_diameter_mm: float
+    bolt_hole_diameter_mm: float
+    n_bolts: int
+    bolt_grade: str = "8.8"
+    min_spacing_mm: float
+    provided_spacing_mm: float
+    min_edge_distance_mm: float
+    provided_edge_distance_mm: float
+    spacing_ok: bool
+    edge_distance_ok: bool
+    bolt_shear_capacity_kN: float
+    bolt_tension_capacity_kN: float
+    utilization_bolt_shear: float
+    utilization_bolt_tension: float
+    weld_throat_mm: float
+    weld_length_mm: float
+    weld_utilization: float
+    stiffener_required: bool = False
+    stiffener_thickness_mm: float = 0.0
+    cleat_angle: str = ""
+    diagonal_member: str = ""
+    utilization_ratio: float
+    status: CheckerStatus
+    code_clause: str = ""
+    warnings: list[str] = Field(default_factory=list)
+
+
 class FanSupportResult(BaseModel):
     """Resultado completo para um suporte de ventilador."""
     support_tag: str
@@ -248,8 +294,10 @@ class FanSupportResult(BaseModel):
     all_combinations: list[LoadCombination] = Field(default_factory=list)
     recommended_section: Optional[SteelSection] = None
     section_verification: Optional[SectionVerificationResult] = None
+    section_options: list[SectionVerificationResult] = Field(default_factory=list)
     base_plate: Optional[BasePlateResult] = None
     anchor: Optional[AnchorResult] = None
+    metal_connection: Optional[MetalConnectionResult] = None
     classification_level: ClassificationLevel = ClassificationLevel.ENGINEERING_ESTIMATE
     status: CheckerStatus = CheckerStatus.PASS
     warnings: list[str] = Field(default_factory=list)

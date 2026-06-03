@@ -57,3 +57,22 @@ def test_results_persist_across_rerun_for_downloads():
     assert not app.exception
     assert len(app.metric) > 0
     assert len(app.get("download_button")) == 3
+
+
+def test_calculation_lists_passing_sections_for_user_choice():
+    """Depois de calcular, a UI deve listar perfis aprovados para escolha."""
+    app = AppTest.from_file("app.py", default_timeout=60)
+    app.run()
+
+    calc = [b for b in app.button if "Calcular" in b.label][0]
+    calc.click()
+    app.run()
+
+    assert not app.exception
+    assert len(app.metric) > 0
+    profile_selectors = [
+        s for s in app.selectbox
+        if s.label == "Perfil ativo para resultados e documentos"
+    ]
+    assert profile_selectors
+    assert len(profile_selectors[0].options) >= 1

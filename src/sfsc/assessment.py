@@ -53,6 +53,9 @@ def get_governing_utilization(result: FanSupportResult) -> tuple[str, float | No
         )
         checks.append(("Ancoragens", anchor_eta))
 
+    if result.metal_connection:
+        checks.append(("Ligações metálicas", result.metal_connection.utilization_ratio))
+
     if not checks:
         return "Sem verificacoes dimensionantes", None
 

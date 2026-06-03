@@ -137,6 +137,16 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
             ("η_bolt_fan", bp.bolt_utilization_fan),
             ("Parafusos estrutura", f"M20 × {bp.n_bolts_structure}"),
             ("η_bolt_str", bp.bolt_utilization_structure),
+            ("Furo ancoragem [mm]", bp.hole_diameter_mm),
+            ("Espaçamento X [mm]", bp.anchor_spacing_x_mm),
+            ("Espaçamento Y [mm]", bp.anchor_spacing_y_mm),
+            ("Espaçamento mín. [mm]", bp.min_spacing_mm),
+            ("Bordo X [mm]", bp.edge_distance_x_mm),
+            ("Bordo Y [mm]", bp.edge_distance_y_mm),
+            ("Bordo mín. [mm]", bp.min_edge_distance_mm),
+            ("η cone betão", bp.utilization_concrete_cone),
+            ("η pull-out", bp.utilization_pullout),
+            ("η pry-out", bp.utilization_pryout),
             ("Garganta soldadura [mm]", bp.weld_throat_mm),
             ("η_weld", bp.weld_utilization), ("Estado", bp.status.value),
         ]:
@@ -161,6 +171,37 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         ]:
             _kv_row(ws5, None, k, v, n5); n5 += 1
         _set_col_widths(ws5, [35, 25])
+
+    # ── Folha 6: Ligações metálicas ───────────────────────────────────────────
+    if res and res.metal_connection:
+        ws6 = wb.create_sheet("Ligações Metálicas")
+        mc = res.metal_connection
+        n6 = 1
+        for k, v in [
+            ("Tipo", mc.connection_type),
+            ("Chapa ligação [mm]", mc.plate_thickness_mm),
+            ("Parafusos", f"M{mc.bolt_diameter_mm:.0f} × {mc.n_bolts} ({mc.bolt_grade})"),
+            ("Furo [mm]", mc.bolt_hole_diameter_mm),
+            ("Espaçamento fornecido [mm]", mc.provided_spacing_mm),
+            ("Espaçamento mínimo [mm]", mc.min_spacing_mm),
+            ("Bordo fornecido [mm]", mc.provided_edge_distance_mm),
+            ("Bordo mínimo [mm]", mc.min_edge_distance_mm),
+            ("N_Rd corte parafusos [kN]", mc.bolt_shear_capacity_kN),
+            ("N_Rd tração parafusos [kN]", mc.bolt_tension_capacity_kN),
+            ("η corte parafusos", mc.utilization_bolt_shear),
+            ("η tração parafusos", mc.utilization_bolt_tension),
+            ("Garganta soldadura [mm]", mc.weld_throat_mm),
+            ("Comprimento soldadura [mm]", mc.weld_length_mm),
+            ("η soldadura", mc.weld_utilization),
+            ("Stiffener", f"{mc.stiffener_thickness_mm:.1f} mm" if mc.stiffener_required else "Não"),
+            ("Cantoneira", mc.cleat_angle or "—"),
+            ("Diagonal", mc.diagonal_member or "—"),
+            ("η global", mc.utilization_ratio),
+            ("Estado", mc.status.value),
+            ("Cláusula", mc.code_clause),
+        ]:
+            _kv_row(ws6, None, k, v, n6); n6 += 1
+        _set_col_widths(ws6, [38, 35])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -193,8 +234,18 @@ def generate_csv(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         "section": res.recommended_section.designation if (res and res.recommended_section) else "",
         "section_utilization": res.section_verification.utilization_ratio if (res and res.section_verification) else "",
         "base_plate_t_mm": res.base_plate.thickness_mm if (res and res.base_plate) else "",
+        "base_plate_hole_d_mm": res.base_plate.hole_diameter_mm if (res and res.base_plate) else "",
+        "base_plate_concrete_cone_eta": res.base_plate.utilization_concrete_cone if (res and res.base_plate) else "",
+        "base_plate_pullout_eta": res.base_plate.utilization_pullout if (res and res.base_plate) else "",
+        "base_plate_pryout_eta": res.base_plate.utilization_pryout if (res and res.base_plate) else "",
         "anchor_d_mm": res.anchor.anchor_diameter_mm if (res and res.anchor) else "",
         "n_anchors": res.anchor.n_anchors if (res and res.anchor) else "",
+        "metal_connection": res.metal_connection.connection_type if (res and res.metal_connection) else "",
+        "metal_connection_eta": res.metal_connection.utilization_ratio if (res and res.metal_connection) else "",
+        "metal_connection_bolts": (
+            f"M{res.metal_connection.bolt_diameter_mm:.0f}x{res.metal_connection.n_bolts}"
+            if (res and res.metal_connection) else ""
+        ),
         "status": res.status.value if res else "",
         "classification": res.classification_level.value if res else "",
     }

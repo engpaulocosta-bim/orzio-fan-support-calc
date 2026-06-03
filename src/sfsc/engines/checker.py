@@ -14,6 +14,8 @@ def run_checker(inp: FanSupportInput, result: FanSupportResult) -> CheckerStatus
         statuses.append(result.base_plate.status)
     if result.anchor:
         statuses.append(result.anchor.status)
+    if result.metal_connection:
+        statuses.append(result.metal_connection.status)
 
     if not statuses:
         return CheckerStatus.PASS

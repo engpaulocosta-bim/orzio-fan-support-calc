@@ -154,6 +154,38 @@ def verify_section(
         assumptions_used=assumptions,
     )
 
+def find_passing_sections(
+    combinations: list[LoadCombination],
+    code: StructuralCode,
+    steel_grade: SteelGrade,
+    preferred_families: list[SectionFamily],
+    buckling_length_y_mm: float,
+    buckling_length_z_mm: float,
+    max_utilization: float = 1.0,
+) -> list[SectionVerificationResult]:
+    """Retorna todos os perfis que verificam, ordenados por peso crescente."""
+    governing = max(combinations, key=lambda c: abs(c.V_z_kN))
+    candidates: list[SectionVerificationResult] = []
+    seen: set[tuple[SectionFamily, str]] = set()
+
+    for family in preferred_families:
+        for section in list_sections(family):
+            key = (section.family, section.designation)
+            if key in seen:
+                continue
+            seen.add(key)
+            result = verify_section(
+                section, governing, code, steel_grade,
+                buckling_length_y_mm, buckling_length_z_mm,
+            )
+            if result.utilization_ratio <= max_utilization:
+                candidates.append(result)
+
+    return sorted(
+        candidates,
+        key=lambda r: (r.section.weight_kgm, r.section.family.value, r.section.designation),
+    )
+
 
 def auto_select_section(
     combinations: list[LoadCombination],

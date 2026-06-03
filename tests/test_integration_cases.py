@@ -6,7 +6,7 @@ from sfsc.enums import (
     CheckerStatus,
 )
 from sfsc.models import FanSupportInput, FanUnit
-from sfsc.engines.selector import run_full_calculation
+from sfsc.engines.selector import run_full_calculation, context_for_section_choice
 
 
 def _make_inp(**kwargs):
@@ -38,6 +38,8 @@ def test_case1_hanger_pt():
     assert res.section_verification is not None
     assert res.anchor is not None
     assert res.status in (CheckerStatus.PASS, CheckerStatus.MARGINAL)
+    assert res.section_options
+    assert all(opt.utilization_ratio <= 1.0 for opt in res.section_options)
 
 
 # ── Caso 2: Cantilever 1 (puro) ES S275 ──────────────────────────────────────
@@ -99,7 +101,19 @@ def test_case5_pedestal_with_base_plate():
         span_mm=1000.0,
     )
     ctx = run_full_calculation(inp)
-    assert ctx.fan_support_result.base_plate is not None
+    res = ctx.fan_support_result
+    assert res.base_plate is not None
+    assert res.base_plate.hole_diameter_mm > res.base_plate.bolt_diameter_mm
+    assert res.base_plate.anchor_spacing_x_mm >= res.base_plate.min_spacing_mm
+    assert res.base_plate.edge_distance_x_mm >= res.base_plate.min_edge_distance_mm
+    assert res.base_plate.concrete_cone_capacity_kN > 0
+    assert res.base_plate.pullout_capacity_kN > 0
+    assert res.base_plate.pryout_capacity_kN > 0
+    assert res.metal_connection is not None
+    assert res.metal_connection.connection_type
+    assert res.metal_connection.n_bolts >= 4
+    assert res.metal_connection.weld_length_mm > 0
+    assert res.metal_connection.utilization_ratio >= 0
 
 
 # ── Caso 6: Combined Chile NCh ────────────────────────────────────────────────
@@ -116,6 +130,8 @@ def test_case6_combined_chile():
     )
     ctx = run_full_calculation(inp)
     assert ctx.fan_support_result is not None
+    assert ctx.fan_support_result.metal_connection is not None
+    assert ctx.fan_support_result.metal_connection.diagonal_member
 
 
 # ── Caso 7: Ventilador pesado (>500 kg) → REQUIRES_SPECIALIST ─────────────────
@@ -168,3 +184,34 @@ def test_case10_springs_warning():
     ctx = run_full_calculation(inp)
     codes = [w.code for w in ctx.warnings]
     assert "W-VIB-001" in codes
+
+
+def test_section_choice_rebuilds_report_context():
+    inp = _make_inp(support_tag="CASE-11")
+    ctx = run_full_calculation(inp)
+    options = ctx.fan_support_result.section_options
+    assert len(options) >= 2
+
+    chosen = options[-1].section.designation
+    chosen_ctx = context_for_section_choice(ctx, chosen)
+
+    assert chosen_ctx.fan_support_input is inp
+    assert chosen_ctx.fan_support_result.recommended_section.designation == chosen
+    assert chosen_ctx.fan_support_result.section_options == options
+
+
+def test_bracketed_cantilever_reports_diagonal_and_stiffener():
+    inp = _make_inp(
+        support_tag="CASE-12",
+        support_type=SupportType.CANTILEVER_1,
+        cantilever_subtype=CantileverSubtype.BRACKETED,
+        installation_height_mm=600.0,
+        span_mm=900.0,
+    )
+    ctx = run_full_calculation(inp)
+    conn = ctx.fan_support_result.metal_connection
+    assert conn is not None
+    assert conn.diagonal_member
+    assert conn.plate_thickness_mm >= 8.0
+    assert conn.provided_spacing_mm >= conn.min_spacing_mm
+    assert conn.provided_edge_distance_mm >= conn.min_edge_distance_mm
