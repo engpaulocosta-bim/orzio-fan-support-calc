@@ -1,0 +1,70 @@
+standards:
+  - id: EN1993-1-1
+    title: "Eurocode 3: Design of Steel Structures — Part 1-1: General rules"
+    edition: "2005 + AC:2009"
+    scope: "Structural steel design — sections, members, connections"
+
+  - id: EN1990
+    title: "Eurocode 0: Basis of structural design"
+    edition: "2002 + A1:2005"
+    scope: "Load combinations, reliability, limit states"
+
+  - id: EN1991-1-1
+    title: "Eurocode 1: Actions on structures — Part 1-1: General actions"
+    edition: "2002"
+    scope: "Permanent and variable loads"
+
+  - id: EN1998-1
+    title: "Eurocode 8: Design for earthquake resistance — Part 1"
+    edition: "2004 + AC:2009"
+    scope: "Seismic actions and general rules"
+
+  - id: EN1992-4
+    title: "Eurocode 2: Design of concrete structures — Part 4: Anchors"
+    edition: "2018"
+    scope: "Design of fastenings in concrete"
+
+  - id: EN1993-1-1_UK_NA
+    title: "UK National Annex to BS EN 1993-1-1"
+    edition: "2008"
+    scope: "UK-specific partial factors and modifications"
+
+  - id: BS8539
+    title: "BS 8539: Code of practice for the selection and installation of post-installed anchors in concrete"
+    edition: "2012"
+    scope: "UK anchor design"
+
+  - id: NBR_8800
+    title: "ABNT NBR 8800: Projeto de estruturas de aço e de estruturas mistas de aço e concreto"
+    edition: "2008"
+    scope: "Brazilian structural steel design"
+
+  - id: NBR_15421
+    title: "ABNT NBR 15421: Projeto de estruturas resistentes a sismos"
+    edition: "2006"
+    scope: "Brazilian seismic design"
+
+  - id: NBR_6122
+    title: "ABNT NBR 6122: Projeto e execução de fundações"
+    edition: "2010"
+    scope: "Foundations and anchors (Brazil)"
+
+  - id: NCh427
+    title: "NCh427:2020: Diseño de estructuras de acero"
+    edition: "2020"
+    scope: "Chilean structural steel design"
+
+  - id: NCh433
+    title: "NCh433.Of2009: Diseño sísmico de edificios"
+    edition: "2009"
+    scope: "Chilean seismic design"
+
+  - id: VDI3840
+    title: "VDI 3840: Supports for pipes, ducts, and mechanical equipment"
+    edition: "2015"
+    scope: "MEP support design — dynamic factor 1.5 for fans"
+
+  - id: EN10025-2
+    title: "EN 10025-2: Hot rolled products of structural steels — Part 2: Technical delivery conditions for non-alloy structural steels"
+    edition: "2019"
+    scope: "Steel grade properties S235, S275, S355"

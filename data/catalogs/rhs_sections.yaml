@@ -1,0 +1,16 @@
+sections:
+  # Secções rectangulares ocas (RHS) — EN 10219 / EN 10210
+  # Quadradas
+  - {designation: RHS80x80x5,   h_mm: 80,  b_mm: 80,  tw_mm: 5.0, tf_mm: 5.0, A_cm2: 14.7, I_y_cm4: 100.0,  I_z_cm4: 100.0,  W_el_y_cm3: 25.0,  W_el_z_cm3: 25.0,  W_pl_y_cm3: 29.5,  W_pl_z_cm3: 29.5,  i_y_mm: 26.1, i_z_mm: 26.1, weight_kgm: 11.5}
+  - {designation: RHS100x100x5, h_mm: 100, b_mm: 100, tw_mm: 5.0, tf_mm: 5.0, A_cm2: 18.7, I_y_cm4: 202.0,  I_z_cm4: 202.0,  W_el_y_cm3: 40.4,  W_el_z_cm3: 40.4,  W_pl_y_cm3: 47.5,  W_pl_z_cm3: 47.5,  i_y_mm: 32.9, i_z_mm: 32.9, weight_kgm: 14.7}
+  - {designation: RHS100x100x6, h_mm: 100, b_mm: 100, tw_mm: 6.0, tf_mm: 6.0, A_cm2: 22.2, I_y_cm4: 234.0,  I_z_cm4: 234.0,  W_el_y_cm3: 46.8,  W_el_z_cm3: 46.8,  W_pl_y_cm3: 55.4,  W_pl_z_cm3: 55.4,  i_y_mm: 32.5, i_z_mm: 32.5, weight_kgm: 17.4}
+  - {designation: RHS120x120x5, h_mm: 120, b_mm: 120, tw_mm: 5.0, tf_mm: 5.0, A_cm2: 22.7, I_y_cm4: 358.0,  I_z_cm4: 358.0,  W_el_y_cm3: 59.7,  W_el_z_cm3: 59.7,  W_pl_y_cm3: 70.0,  W_pl_z_cm3: 70.0,  i_y_mm: 39.7, i_z_mm: 39.7, weight_kgm: 17.8}
+  - {designation: RHS120x120x6, h_mm: 120, b_mm: 120, tw_mm: 6.0, tf_mm: 6.0, A_cm2: 27.0, I_y_cm4: 419.0,  I_z_cm4: 419.0,  W_el_y_cm3: 69.8,  W_el_z_cm3: 69.8,  W_pl_y_cm3: 82.3,  W_pl_z_cm3: 82.3,  i_y_mm: 39.4, i_z_mm: 39.4, weight_kgm: 21.2}
+  - {designation: RHS150x150x6, h_mm: 150, b_mm: 150, tw_mm: 6.0, tf_mm: 6.0, A_cm2: 34.2, I_y_cm4: 844.0,  I_z_cm4: 844.0,  W_el_y_cm3: 112.5, W_el_z_cm3: 112.5, W_pl_y_cm3: 132.4, W_pl_z_cm3: 132.4, i_y_mm: 49.7, i_z_mm: 49.7, weight_kgm: 26.8}
+  - {designation: RHS150x150x8, h_mm: 150, b_mm: 150, tw_mm: 8.0, tf_mm: 8.0, A_cm2: 44.8, I_y_cm4: 1075.0, I_z_cm4: 1075.0, W_el_y_cm3: 143.3, W_el_z_cm3: 143.3, W_pl_y_cm3: 169.7, W_pl_z_cm3: 169.7, i_y_mm: 48.9, i_z_mm: 48.9, weight_kgm: 35.2}
+  - {designation: RHS200x200x6, h_mm: 200, b_mm: 200, tw_mm: 6.0, tf_mm: 6.0, A_cm2: 46.2, I_y_cm4: 2020.0, I_z_cm4: 2020.0, W_el_y_cm3: 202.0, W_el_z_cm3: 202.0, W_pl_y_cm3: 237.0, W_pl_z_cm3: 237.0, i_y_mm: 66.1, i_z_mm: 66.1, weight_kgm: 36.2}
+  - {designation: RHS200x200x8, h_mm: 200, b_mm: 200, tw_mm: 8.0, tf_mm: 8.0, A_cm2: 60.8, I_y_cm4: 2600.0, I_z_cm4: 2600.0, W_el_y_cm3: 260.0, W_el_z_cm3: 260.0, W_pl_y_cm3: 307.2, W_pl_z_cm3: 307.2, i_y_mm: 65.4, i_z_mm: 65.4, weight_kgm: 47.7}
+  # Rectangulares
+  - {designation: RHS160x80x5,  h_mm: 160, b_mm: 80,  tw_mm: 5.0, tf_mm: 5.0, A_cm2: 22.7, I_y_cm4: 481.0,  I_z_cm4: 152.0,  W_el_y_cm3: 60.1,  W_el_z_cm3: 38.0,  W_pl_y_cm3: 72.6,  W_pl_z_cm3: 44.6,  i_y_mm: 46.0, i_z_mm: 25.9, weight_kgm: 17.8}
+  - {designation: RHS200x100x6, h_mm: 200, b_mm: 100, tw_mm: 6.0, tf_mm: 6.0, A_cm2: 34.2, I_y_cm4: 1210.0, I_z_cm4: 378.0,  W_el_y_cm3: 121.0, W_el_z_cm3: 75.6,  W_pl_y_cm3: 146.0, W_pl_z_cm3: 88.3,  i_y_mm: 59.5, i_z_mm: 33.3, weight_kgm: 26.8}
+  - {designation: RHS250x150x8, h_mm: 250, b_mm: 150, tw_mm: 8.0, tf_mm: 8.0, A_cm2: 60.8, I_y_cm4: 3680.0, I_z_cm4: 1530.0, W_el_y_cm3: 294.4, W_el_z_cm3: 204.0, W_pl_y_cm3: 354.5, W_pl_z_cm3: 238.4, i_y_mm: 77.8, i_z_mm: 50.1, weight_kgm: 47.7}

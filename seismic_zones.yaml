@@ -1,0 +1,87 @@
+# Factores sísmicos de projecto ag/g por país e zona
+# Fonte: EN 1998-1 Anexos Nacionais, NBR 15421, NCh433
+# AVISO: valores indicativos para estimativa preliminar.
+# Verificar sempre com o zonamento sísmico local do projecto.
+
+countries:
+  PT:
+    code: EN1998-1
+    na: "NP EN 1998-1:2010 (NA PT)"
+    default_zone: "1.3"
+    zones:
+      "1.1": {ag_g: 0.35, description: "Algarve, costa SW"}
+      "1.2": {ag_g: 0.25, description: "Lisboa, Setúbal, costa W"}
+      "1.3": {ag_g: 0.15, description: "Porto, centro-norte litoral"}
+      "1.4": {ag_g: 0.10, description: "Interior norte"}
+      "1.5": {ag_g: 0.08, description: "Interior centro"}
+      "1.6": {ag_g: 0.07, description: "Nordeste interior"}
+      "2.1": {ag_g: 0.25, description: "Açores zona alta"}
+      "2.2": {ag_g: 0.20, description: "Açores zona média"}
+      "2.3": {ag_g: 0.15, description: "Madeira"}
+
+  ES:
+    code: EN1998-1
+    na: "NCSE-02 (mapeado para EC8)"
+    default_zone: "B"
+    zones:
+      "A":  {ag_g: 0.04, description: "Galiza, Cantábria, Catalunha interior"}
+      "B":  {ag_g: 0.08, description: "Madrid, Aragão, Castela e Leão"}
+      "C":  {ag_g: 0.12, description: "Murcia, Almeria, Valência sul"}
+      "D":  {ag_g: 0.16, description: "Granada, Málaga, Alicante"}
+
+  IE:
+    code: EN1998-1
+    na: "IS EN 1998-1 NA Ireland"
+    default_zone: "IE"
+    zones:
+      "IE": {ag_g: 0.03, description: "Ireland — baixa sismicidade"}
+
+  EU:
+    code: EN1998-1
+    na: "Genérico EC8 — conservativo"
+    default_zone: "EU_generic"
+    zones:
+      "EU_generic": {ag_g: 0.10, description: "Factor conservativo para âmbito EU sem zonamento local"}
+      "low":        {ag_g: 0.04, description: "Baixa sismicidade EU"}
+      "medium":     {ag_g: 0.10, description: "Sismicidade média EU"}
+      "high":       {ag_g: 0.20, description: "Alta sismicidade EU"}
+
+  UK:
+    code: EN1998-1
+    na: "BS EN 1998-1 UK NA"
+    default_zone: "UK"
+    zones:
+      "UK":       {ag_g: 0.05, description: "UK — baixa sismicidade geral"}
+      "scotland": {ag_g: 0.06, description: "Escócia"}
+      "wales":    {ag_g: 0.06, description: "País de Gales"}
+
+  FR:
+    code: EN1998-1
+    na: "NF EN 1998-1 NA France"
+    default_zone: "2"
+    zones:
+      "1": {ag_g: 0.07, description: "Nord, Île-de-France, Bretagne"}
+      "2": {ag_g: 0.10, description: "Normandie, Grand Est, Rhône-Alpes norte"}
+      "3": {ag_g: 0.13, description: "Rhône-Alpes sul, PACA interior"}
+      "4": {ag_g: 0.16, description: "Alpes, Pyrénées"}
+      "5": {ag_g: 0.25, description: "Antilles, DOM-TOM"}
+
+  BR:
+    code: NBR_15421
+    na: "ABNT NBR 15421:2006"
+    default_zone: "II"
+    zones:
+      "0":   {ag_g: 0.025, description: "São Paulo interior, sul RS"}
+      "I":   {ag_g: 0.05,  description: "Grande parte do interior, SP, PR, SC"}
+      "II":  {ag_g: 0.10,  description: "SP litoral, RJ, Minas Gerais"}
+      "III": {ag_g: 0.15,  description: "NE litoral, Bahia, ES"}
+      "IV":  {ag_g: 0.15,  description: "Amazonas, Pará — sismos profundos"}
+
+  CL:
+    code: NCh433
+    na: "NCh433.Of2009"
+    default_zone: "2"
+    zones:
+      "1": {ag_g: 0.20, description: "Norte Chile — Arica, Tarapacá, Antofagasta"}
+      "2": {ag_g: 0.30, description: "Norte médio — Atacama, Coquimbo, Valparaíso"}
+      "3": {ag_g: 0.40, description: "Centro e sul — RM, O'Higgins, Maule, Biobío"}

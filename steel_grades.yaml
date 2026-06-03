@@ -1,0 +1,68 @@
+# Propriedades dos aços estruturais
+# Fonte: EN 10025-2, ASTM A36, ASTM A572, NBR 7007
+grades:
+  S235:
+    norm: "EN 10025-2"
+    fy_mpa: 235        # t ≤ 40 mm
+    fu_mpa: 360
+    fy_thick_mpa: 215  # 40 < t ≤ 80 mm
+    E_mpa: 210000
+    G_mpa: 81000
+    gamma_M0: 1.00
+    gamma_M1: 1.00
+    gamma_M2: 1.25
+
+  S275:
+    norm: "EN 10025-2"
+    fy_mpa: 275
+    fu_mpa: 430
+    fy_thick_mpa: 255
+    E_mpa: 210000
+    G_mpa: 81000
+    gamma_M0: 1.00
+    gamma_M1: 1.00
+    gamma_M2: 1.25
+
+  S355:
+    norm: "EN 10025-2"
+    fy_mpa: 355
+    fu_mpa: 510
+    fy_thick_mpa: 335
+    E_mpa: 210000
+    G_mpa: 81000
+    gamma_M0: 1.00
+    gamma_M1: 1.00
+    gamma_M2: 1.25
+
+  A36:
+    norm: "ASTM A36"
+    fy_mpa: 250
+    fu_mpa: 400
+    fy_thick_mpa: 250
+    E_mpa: 200000
+    G_mpa: 77000
+    gamma_M0: 1.00
+    gamma_M1: 1.00
+    gamma_M2: 1.25
+
+  A572Gr50:
+    norm: "ASTM A572 Grade 50"
+    fy_mpa: 345
+    fu_mpa: 450
+    fy_thick_mpa: 345
+    E_mpa: 200000
+    G_mpa: 77000
+    gamma_M0: 1.00
+    gamma_M1: 1.00
+    gamma_M2: 1.25
+
+  AT-500:
+    norm: "NBR 7007 AT-500"
+    fy_mpa: 500
+    fu_mpa: 600
+    fy_thick_mpa: 500
+    E_mpa: 200000
+    G_mpa: 77000
+    gamma_M0: 1.00
+    gamma_M1: 1.00
+    gamma_M2: 1.25
