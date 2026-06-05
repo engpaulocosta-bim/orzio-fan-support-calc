@@ -1,32 +1,41 @@
-"""Engineering-drawing style SVG preview of the fan support.
+"""Engineering-drawing SVG preview of the fan support.
 
-Rendered to scale from the real span/height, with technical dimension lines,
-load arrows, a utilisation gauge and a detailed fixing node. Returned as a
-self-contained HTML document meant to be embedded with
-``streamlit.components.v1.html`` (an isolated iframe), NOT ``st.markdown``:
-the Streamlit markdown sanitiser mangles complex SVG and leaks the markup as
-raw text.
+Two views side by side — PLANTA (top view, left) and ALÇADO (elevation, right) —
+drawn to real scale from the user's inputs (span, height, footprint, CG height,
+eccentricity). Only two real support concepts are drawn:
+
+* **Pendurado** (``HANGER``): suspended from above by tensioned steel rods.
+* **Engastado** (``CANTILEVER_1`` / ``CANTILEVER_2``): fixed to a pre-existing
+  beam on the left (one side) or both sides, optionally braced by a knee strut
+  ("mão-francesa"). No columns to the floor.
+
+Returned as a self-contained HTML document for ``streamlit.components.v1.html``
+(an isolated iframe), NOT ``st.markdown`` — the markdown sanitiser mangles
+complex SVG and leaks the markup as raw text.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from html import escape
 
-from sfsc.enums import AnchorageSubstrate, CheckerStatus, SupportType
+from sfsc.enums import AnchorageSubstrate, CantileverSubtype, CheckerStatus, SupportType
 from sfsc.models import FanSupportInput, FanSupportResult
 
-# ── Canvas / drawing constants ──────────────────────────────────────────────────
-# The drawing area is the central band between the margins. The top margin is
-# large so the legend card and the utilisation gauge (pinned to the top corners)
-# never collide with the structure, which is drawn only inside the band.
-_W = 960
-_H = 560
-_MARGIN_L = 150        # leave room so the structure clears the legend card
-_MARGIN_R = 150        # …and the utilisation gauge on the right
-_MARGIN_T = 150        # legend / gauge live above this line
-_MARGIN_B = 120        # span dimension + anchor labels live below this line
-_DRAW_W = _W - _MARGIN_L - _MARGIN_R
-_DRAW_H = _H - _MARGIN_T - _MARGIN_B
+# ── Canvas ───────────────────────────────────────────────────────────────────────
+_W = 1180
+_H = 600
+_PANEL_W = 560
+_PANEL_GAP = 20
+_PANEL_PLAN_X = 20          # left edge of the PLANTA panel
+_PANEL_ELEV_X = _PANEL_PLAN_X + _PANEL_W + _PANEL_GAP
+
+# Drawing band inside each panel (local margins).
+_M_L = 70
+_M_R = 70
+_M_T = 96
+_M_B = 92
+_BAND_W = _PANEL_W - _M_L - _M_R
+_BAND_H = _H - _M_T - _M_B
 
 _STATUS_COLOR = {
     "PASS": "#16a34a",
@@ -34,34 +43,17 @@ _STATUS_COLOR = {
     "FAIL": "#dc2626",
     "REQUIRES_SPECIALIST": "#7c3aed",
 }
-_STEEL = "#1f6feb"
+_STEEL = "#1d4ed8"
 _INK = "#0f172a"
 _DIM = "#475569"
 _GRID = "#e8eef5"
 
 
-@dataclass
-class _Scene:
-    """Resolved drawing scene in canvas coordinates (everything to one scale)."""
-
-    scale: float          # mm -> px (shared by structure AND fan)
-    base_y: float         # ground / fixing line (canvas y)
-    top_y: float          # top of the steel frame
-    left_x: float         # left support line
-    right_x: float        # right support / span end
-    axis_x: float         # support axis (span centre) — reference for eccentricity
-    fan_cx: float         # fan centre x (= axis_x + eccentricity)
-    fan_y: float          # baseline the fan rests on / hangs from (bottom edge)
-    fan_w: float          # fan footprint width in px (real scale)
-    fan_h: float          # fan body height in px (real scale: 2x CG)
-    cg_x: float           # centre of gravity x
-    cg_y: float           # centre of gravity y
-    ecc_mm: float         # eccentricity in mm (for the dimension label)
-
+# ── Public entry point ────────────────────────────────────────────────────────────
 
 def support_preview_html(inp: FanSupportInput, res: FanSupportResult) -> str:
-    """Return a full HTML document with the to-scale support drawing."""
-    support_label = inp.support_type.value.replace("_", " ").title()
+    """Return a full HTML document with the PLANTA + ALÇADO drawing."""
+    support_label = _support_label(inp)
     section = res.recommended_section.designation if res.recommended_section else "n/a"
     substrate = (
         "Betão"
@@ -70,30 +62,69 @@ def support_preview_html(inp: FanSupportInput, res: FanSupportResult) -> str:
     )
     status = res.status.value if isinstance(res.status, CheckerStatus) else str(res.status)
     status_color = _STATUS_COLOR.get(status, "#64748b")
-
     eta = _utilisation(res)
-    fan_mass = sum(u.operating_weight_kg for u in inp.fan_units) if inp.fan_units else 0.0
 
-    scene = _build_scene(inp)
-
-    frame = _frame(inp.support_type, scene)
-    extras = _extras(inp.support_type, scene)
-    fan = _fan(scene, fan_mass)
-    load_arrow = _load_arrow(scene)
-    anchors = _anchors(inp.anchorage_substrate, inp.support_type, scene)
-    dims = _dimensions(inp, scene)
-    grid = _grid()
-    gauge = _gauge(eta, status, status_color)
-    legend = _legend(support_label, section, substrate, status, status_color)
+    plan = _panel(_PANEL_PLAN_X, "PLANTA", _draw_plan(inp))
+    elev = _panel(_PANEL_ELEV_X, "ALÇADO", _draw_elevation(inp))
 
     svg = f"""
       <svg viewBox="0 0 {_W} {_H}" role="img"
-           aria-label="Modelo esquematico do suporte a escala">
+           aria-label="Modelo do suporte: planta e alçado">
+        {_defs()}
+        <rect x="0" y="0" width="{_W}" height="{_H}" fill="#f8fafc"/>
+        {_header(support_label, section, substrate, status, status_color, eta)}
+        {plan}
+        {elev}
+      </svg>
+    """
+    return _document(svg)
+
+
+# ── Layout scaffolding ─────────────────────────────────────────────────────────────
+
+def _panel(x0: float, title: str, body: str) -> str:
+    """Wrap a panel body (already in local coords) with a frame and title."""
+    return f"""
+      <g transform="translate({x0} 0)">
+        <rect x="6" y="64" width="{_PANEL_W - 12}" height="{_H - 86}" rx="10"
+              fill="#ffffff" stroke="#dbe4ee"/>
+        <text x="{_PANEL_W / 2:.0f}" y="86" text-anchor="middle"
+              font-size="15" font-weight="800" fill="{_INK}"
+              letter-spacing="1">{title}</text>
+        {body}
+      </g>
+    """
+
+
+def _header(label: str, section: str, substrate: str, status: str,
+            color: str, eta: float) -> str:
+    """Top strip spanning the canvas: legend card (left) + utilisation gauge (right)."""
+    bar_x, bar_y, bar_w, bar_h = _W - 270, 30, 168, 14
+    pct = max(0.0, min(eta, 1.0))
+    return f"""
+      <g>
+        <rect x="20" y="14" width="360" height="40" rx="10"
+              fill="#f1f5f9" stroke="#dbe4ee"/>
+        <rect x="20" y="14" width="6" height="40" rx="3" fill="{color}"/>
+        <text x="38" y="32" font-size="14" font-weight="700"
+              fill="{_INK}">{escape(label)}</text>
+        <text x="38" y="48" font-size="12" fill="#334155">Perfil: {escape(section)}  •  Fixação: {escape(substrate)}</text>
+        <text x="{bar_x:.0f}" y="{bar_y - 4:.0f}" font-size="12" font-weight="700"
+              fill="{_INK}">Utilização  &#951; = {eta * 100:.1f}%</text>
+        <rect x="{bar_x:.0f}" y="{bar_y:.0f}" width="{bar_w}" height="{bar_h}" rx="7" fill="#e2e8f0"/>
+        <rect x="{bar_x:.0f}" y="{bar_y:.0f}" width="{bar_w * pct:.0f}" height="{bar_h}" rx="7" fill="{color}"/>
+        <rect x="{bar_x + bar_w + 8:.0f}" y="{bar_y - 2:.0f}" width="86" height="20" rx="10" fill="{color}"/>
+        <text x="{bar_x + bar_w + 51:.0f}" y="{bar_y + 12:.0f}" text-anchor="middle"
+              font-size="11" font-weight="700" fill="white">{escape(status)}</text>
+      </g>
+    """
+
+
+def _defs() -> str:
+    return f"""
         <defs>
-          <!-- userSpaceOnUse so vertical (zero-width-bbox) members still get a
-               visible stroke; an objectBoundingBox gradient collapses on them. -->
           <linearGradient id="steel" gradientUnits="userSpaceOnUse"
-                          x1="0" y1="{_MARGIN_T}" x2="0" y2="{_MARGIN_T + _DRAW_H}">
+                          x1="0" y1="{_M_T}" x2="0" y2="{_M_T + _BAND_H}">
             <stop offset="0" stop-color="#3b82f6"/>
             <stop offset="1" stop-color="#1d4ed8"/>
           </linearGradient>
@@ -102,262 +133,310 @@ def support_preview_html(inp: FanSupportInput, res: FanSupportResult) -> str:
             <stop offset="1" stop-color="#cbd5e1"/>
           </linearGradient>
           <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
-            <feDropShadow dx="0" dy="5" stdDeviation="5"
-                          flood-color="#0b1220" flood-opacity="0.20"/>
+            <feDropShadow dx="0" dy="4" stdDeviation="4"
+                          flood-color="#0b1220" flood-opacity="0.18"/>
           </filter>
-          <marker id="dimArrow" markerWidth="9" markerHeight="9"
-                  refX="7" refY="4.5" orient="auto">
+          <marker id="dimArrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
             <path d="M0 0 L8 4.5 L0 9 z" fill="{_DIM}"/>
           </marker>
-          <marker id="loadArrow" markerWidth="12" markerHeight="12"
-                  refX="5" refY="10" orient="auto">
+          <marker id="loadArrow" markerWidth="12" markerHeight="12" refX="5" refY="10" orient="auto">
             <path d="M5 11 L0 2 L10 2 z" fill="#dc2626"/>
           </marker>
+          <pattern id="concreteHatch" width="8" height="8" patternTransform="rotate(45)"
+                   patternUnits="userSpaceOnUse">
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#94a3b8" stroke-width="1"/>
+          </pattern>
         </defs>
-
-        <rect x="0" y="0" width="{_W}" height="{_H}" fill="#f8fafc"/>
-        <rect x="40" y="44" width="{_W - 80}" height="{_H - 92}" rx="10"
-              fill="#ffffff" stroke="#dbe4ee"/>
-        {grid}
-        {frame}
-        {extras}
-        {fan}
-        {load_arrow}
-        {anchors}
-        {dims}
-        {gauge}
-        {legend}
-      </svg>
     """
 
+
+def _document(svg: str) -> str:
     return f"""<!doctype html>
 <html><head><meta charset="utf-8">
 <style>
   html, body {{ margin: 0; padding: 0; height: 100%; background: transparent; }}
-  /* Centre the drawing and bound it by BOTH width and height so it keeps its
-     aspect ratio and is never clipped when the iframe gets wide on maximise. */
   .sfsc-preview {{
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
     box-sizing: border-box;
   }}
   .sfsc-preview svg {{
-    max-width: 100%;
-    max-height: 100%;
-    width: auto;
-    height: auto;
+    max-width: 100%; max-height: 100%; width: auto; height: auto;
     display: block;
-    border: 1px solid #dbe4ee;
-    border-radius: 10px;
-    background: #f8fafc;
+    border: 1px solid #dbe4ee; border-radius: 10px; background: #f8fafc;
     font-family: 'Segoe UI', system-ui, sans-serif;
   }}
 </style></head>
 <body><div class="sfsc-preview">{svg}</div></body></html>"""
 
 
-# ── Scene resolution (real geometry -> canvas) ──────────────────────────────────
+# ── Geometry helpers ───────────────────────────────────────────────────────────────
 
-def _build_scene(inp: FanSupportInput) -> _Scene:
+def _is_engaste(inp: FanSupportInput) -> bool:
+    return inp.support_type in (SupportType.CANTILEVER_1, SupportType.CANTILEVER_2)
+
+
+def _two_sided(inp: FanSupportInput) -> bool:
+    return inp.support_type == SupportType.CANTILEVER_2
+
+
+def _braced(inp: FanSupportInput) -> bool:
+    return inp.cantilever_subtype == CantileverSubtype.BRACKETED
+
+
+def _support_label(inp: FanSupportInput) -> str:
+    if inp.support_type == SupportType.HANGER:
+        return "Pendurado (tirantes)"
+    if inp.support_type == SupportType.CANTILEVER_2:
+        return "Engastado (2 lados)"
+    if inp.support_type == SupportType.CANTILEVER_1:
+        return "Engastado (1 lado)"
+    return inp.support_type.value.replace("_", " ").title()
+
+
+def _fan_dims_mm(inp: FanSupportInput) -> tuple[float, float, float, float]:
+    """(width, length, box_height, mass) in mm/kg from the fan inputs."""
+    unit = inp.fan_units[0] if inp.fan_units else None
+    width = max((u.footprint_width_mm for u in inp.fan_units), default=600.0)
+    length = max((u.footprint_length_mm for u in inp.fan_units), default=600.0)
+    cg = unit.centre_of_gravity_height_mm if unit else 0.0
+    box_h = max(2.0 * cg, 250.0)
+    mass = sum(u.operating_weight_kg for u in inp.fan_units) if inp.fan_units else 0.0
+    return width, length, box_h, mass
+
+
+# ── ELEVATION (alçado) ─────────────────────────────────────────────────────────────
+
+@dataclass
+class _Elev:
+    scale: float
+    base_y: float          # floor / beam-top reference line (elevation)
+    top_y: float           # top of structure / ceiling line
+    left_x: float
+    right_x: float
+    axis_x: float
+    fan_cx: float
+    fan_y: float           # bottom edge of the fan box
+    fan_w: float
+    fan_h: float
+    cg_x: float
+    cg_y: float
+    ecc_mm: float
+
+
+def _elev_scene(inp: FanSupportInput) -> _Elev:
     span = max(inp.span_mm, 1.0)
     height = max(inp.installation_height_mm, 1.0)
-
-    # Real fan geometry. The box is drawn to scale: width = footprint, height =
-    # twice the CG height (so the CG sits at mid-height). Fall back to readable
-    # minimums when the user leaves CG / footprint at zero.
-    unit = inp.fan_units[0] if inp.fan_units else None
-    footprint_mm = max((u.footprint_width_mm for u in inp.fan_units), default=600.0)
-    cg_mm = unit.centre_of_gravity_height_mm if unit else 0.0
-    fan_h_mm = max(2.0 * cg_mm, 250.0)        # box height in mm (CG at mid-height)
+    fan_w_mm, _len, fan_h_mm, _mass = _fan_dims_mm(inp)
     ecc_mm = inp.eccentricity_mm
 
-    # One shared scale for the whole drawing. It must fit the span horizontally
-    # and (structure height + fan height) vertically. The fan is drawn at this
-    # same scale — if its footprint is wider than the span it is allowed to
-    # overflow the supports (faithful to reality).
+    # The fan sits ON the arm, so the band must fit (height + fan height)
+    # vertically. Reserve ~48 px headroom above for the F_Ed arrow and caption.
+    head_px = 48.0
+    avail_h = max(_BAND_H - head_px, 40.0)
     total_h_mm = height + fan_h_mm
-    scale = min(_DRAW_W / span, _DRAW_H / total_h_mm)
-    scale = max(scale, 1e-3)
 
-    base_y = _MARGIN_T + _DRAW_H
-    top_y = base_y - height * scale
+    if inp.support_type == SupportType.CANTILEVER_1:
+        # Horizontal budget: arm (span) + fan half-width, so the fan never
+        # overflows the band on the right.
+        horiz_mm = span + fan_w_mm * 0.5
+    else:
+        horiz_mm = max(span, fan_w_mm)
+    scale = max(min(_BAND_W / horiz_mm, avail_h / total_h_mm), 1e-3)
 
-    span_px = span * scale
-    left_x = _MARGIN_L + (_DRAW_W - span_px) / 2.0
-    right_x = left_x + span_px
-    axis_x = (left_x + right_x) / 2.0
-
-    fan_w = footprint_mm * scale
+    fan_w = fan_w_mm * scale
     fan_h = fan_h_mm * scale
-    fan_cx = axis_x + ecc_mm * scale          # eccentric offset from the axis
+    span_px = span * scale
+
+    base_y = _M_T + _BAND_H
+    top_y = base_y - height * scale       # the arm level (top of structure)
 
     if inp.support_type == SupportType.HANGER:
-        # Suspended: the fan hangs from the bottom cross member.
+        left_x = _M_L + (_BAND_W - span_px) / 2.0
+        right_x = left_x + span_px
+        axis_x = (left_x + right_x) / 2.0
+        fan_cx = axis_x + ecc_mm * scale
         fan_y = base_y - 14.0
-    else:
-        fan_y = top_y                          # fan rests on top of the frame
+    elif inp.support_type == SupportType.CANTILEVER_1:
+        # Beam on the left of the band; arm reaches right; fan on the arm tip,
+        # kept fully inside the band.
+        left_x = _M_L + 8
+        right_x = left_x + span_px
+        axis_x = right_x
+        fan_cx = min(right_x + ecc_mm * scale, _PANEL_W - _M_R - fan_w / 2)
+        fan_y = top_y
+    else:  # CANTILEVER_2
+        left_x = _M_L + (_BAND_W - span_px) / 2.0
+        right_x = left_x + span_px
+        axis_x = (left_x + right_x) / 2.0
+        fan_cx = axis_x + ecc_mm * scale
+        fan_y = top_y
 
     cg_x = fan_cx
-    cg_y = fan_y - fan_h / 2.0                  # CG at mid-height of the box
-
-    return _Scene(
-        scale=scale, base_y=base_y, top_y=top_y, left_x=left_x, right_x=right_x,
-        axis_x=axis_x, fan_cx=fan_cx, fan_y=fan_y, fan_w=fan_w, fan_h=fan_h,
-        cg_x=cg_x, cg_y=cg_y, ecc_mm=ecc_mm,
-    )
+    cg_y = fan_y - fan_h / 2.0
+    return _Elev(scale, base_y, top_y, left_x, right_x, axis_x, fan_cx, fan_y,
+                 fan_w, fan_h, cg_x, cg_y, ecc_mm)
 
 
-# ── Steel frame per support type ────────────────────────────────────────────────
+def _draw_elevation(inp: FanSupportInput) -> str:
+    s = _elev_scene(inp)
+    _, _len, _bh, mass = _fan_dims_mm(inp)
+    concrete = inp.anchorage_substrate == AnchorageSubstrate.CONCRETE
 
-def _frame(support_type: SupportType, s: _Scene) -> str:
-    lx, rx, by, ty, cx = s.left_x, s.right_x, s.base_y, s.top_y, s.fan_cx
-    g_open = ('<g stroke="url(#steel)" stroke-width="10" stroke-linecap="round" '
-              'stroke-linejoin="round" fill="none" filter="url(#softShadow)">')
-
-    if support_type == SupportType.HANGER:
-        # Ceiling beam at the top, two threaded rods hanging down to a bottom
-        # cross member from which the fan is suspended.
-        cross_y = by - 14.0
-        body = (
-            f'<path d="M{lx - 24:.0f} {ty:.0f} L{rx + 24:.0f} {ty:.0f}"/>'
-            f'<path d="M{lx:.0f} {ty:.0f} L{lx:.0f} {cross_y:.0f}"/>'
-            f'<path d="M{rx:.0f} {ty:.0f} L{rx:.0f} {cross_y:.0f}"/>'
-            f'<path d="M{lx:.0f} {cross_y:.0f} L{rx:.0f} {cross_y:.0f}"/>'
-        )
-    elif support_type == SupportType.CANTILEVER_1:
-        body = (
-            f'<path d="M{lx:.0f} {ty:.0f} L{lx:.0f} {by:.0f}"/>'
-            f'<path d="M{lx:.0f} {ty:.0f} L{rx:.0f} {ty:.0f}"/>'
-        )
-    elif support_type == SupportType.CANTILEVER_2:
-        body = (
-            f'<path d="M{cx:.0f} {ty:.0f} L{cx:.0f} {by:.0f}"/>'
-            f'<path d="M{lx:.0f} {ty:.0f} L{rx:.0f} {ty:.0f}"/>'
-        )
-    elif support_type == SupportType.CANTILEVER_3:
-        body = (
-            f'<path d="M{lx:.0f} {by:.0f} L{lx:.0f} {ty:.0f} '
-            f'L{rx:.0f} {ty:.0f} L{rx:.0f} {by:.0f}"/>'
-        )
-    elif support_type == SupportType.PEDESTAL:
-        inset = (rx - lx) * 0.18
-        body = (
-            f'<path d="M{lx + inset:.0f} {by:.0f} L{lx + inset:.0f} {ty:.0f} '
-            f'L{rx - inset:.0f} {ty:.0f} L{rx - inset:.0f} {by:.0f}"/>'
-            f'<path d="M{lx:.0f} {by:.0f} L{rx:.0f} {by:.0f}"/>'
-        )
-    else:  # COMBINED — portal frame
-        body = (
-            f'<path d="M{lx:.0f} {by:.0f} L{lx:.0f} {ty:.0f} '
-            f'L{rx:.0f} {ty:.0f} L{rx:.0f} {by:.0f}"/>'
-            f'<path d="M{lx:.0f} {ty:.0f} L{rx:.0f} {ty:.0f}"/>'
-        )
-    return g_open + body + "</g>"
-
-
-def _extras(support_type: SupportType, s: _Scene) -> str:
-    """Diagonal braces and anti-vibration springs."""
-    parts: list[str] = []
-    lx, rx, by, ty, cx = s.left_x, s.right_x, s.base_y, s.top_y, s.fan_cx
-
-    if support_type in (SupportType.CANTILEVER_1, SupportType.COMBINED):
-        bx = lx + (rx - lx) * 0.45
-        parts.append(
-            '<g stroke="url(#steel)" stroke-width="9" stroke-linecap="round" '
-            f'fill="none" opacity="0.85"><path d="M{lx:.0f} {by:.0f} '
-            f'L{bx:.0f} {ty:.0f}"/></g>'
-        )
-
-    if support_type == SupportType.COMBINED:
-        sp = []
-        for px in (cx - s.fan_w * 0.35, cx + s.fan_w * 0.35):
-            y0 = ty - 26
-            sp.append(
-                f'<path d="M{px:.0f} {y0:.0f} q14 8 0 16 q-14 8 0 16 '
-                f'q14 8 0 16 q-14 8 0 16"/>'
-            )
-        parts.append(
-            '<g stroke="#f97316" stroke-width="4" fill="none">'
-            + "".join(sp) + "</g>"
-        )
+    parts = [_grid()]
+    if inp.support_type == SupportType.HANGER:
+        parts.append(_elev_hanger(s))
+    else:
+        parts.append(_elev_engaste(inp, s, concrete))
+    parts.append(_fan_box(s.fan_cx, s.fan_y, s.fan_w, s.fan_h, s.cg_x, s.cg_y, mass))
+    parts.append(_load_arrow(s))
+    parts.append(_elev_dims(inp, s))
     return "".join(parts)
 
 
-# ── Equipment ───────────────────────────────────────────────────────────────────
+def _elev_hanger(s: _Elev) -> str:
+    """Ceiling line + tensioned rods + bottom cross member; fan hangs below."""
+    cross_y = s.base_y - 14.0
+    g = ('<g stroke="url(#steel)" stroke-width="9" stroke-linecap="round" '
+         'stroke-linejoin="round" fill="none" filter="url(#softShadow)">')
+    rods = (
+        f'<path d="M{s.left_x:.0f} {s.top_y:.0f} L{s.left_x:.0f} {cross_y:.0f}"/>'
+        f'<path d="M{s.right_x:.0f} {s.top_y:.0f} L{s.right_x:.0f} {cross_y:.0f}"/>'
+        f'<path d="M{s.left_x:.0f} {cross_y:.0f} L{s.right_x:.0f} {cross_y:.0f}"/>'
+    )
+    # Ceiling slab + hatching above (tensioned rods anchor to it).
+    ceil = (
+        f'<line x1="{_M_L - 24:.0f}" y1="{s.top_y:.0f}" x2="{_PANEL_W - _M_R + 24:.0f}" '
+        f'y2="{s.top_y:.0f}" stroke="#334155" stroke-width="3"/>'
+        f'<rect x="{_M_L - 24:.0f}" y="{s.top_y - 12:.0f}" '
+        f'width="{_BAND_W + 48:.0f}" height="12" fill="url(#concreteHatch)"/>'
+    )
+    # "T" arrows on the rods to indicate tension.
+    tens = ""
+    for rx in (s.left_x, s.right_x):
+        my = (s.top_y + cross_y) / 2
+        tens += (
+            f'<text x="{rx + 8:.0f}" y="{my:.0f}" font-size="10" fill="#0369a1">↑↓</text>'
+        )
+    return ceil + g + rods + "</g>" + tens
 
-def _fan(s: _Scene, fan_mass: float) -> str:
-    """Fan box drawn to real scale, with a centre-of-gravity marker.
 
-    Text is offset from the vertical CG/load line and the CG marker so nothing
-    overlaps: the name sits in the upper third, the mass in the lower third.
+def _elev_engaste(inp: FanSupportInput, s: _Elev, concrete: bool) -> str:
+    """Fixed to a pre-existing beam (left, or both sides), optional knee brace.
+
+    Draw order: beams, then knee braces, then the horizontal arm LAST so the arm
+    (which carries the fan) reads on top of the braces. The arm sits at the fan
+    box's bottom edge; the fan box is drawn afterwards by the caller and rests on
+    the arm.
     """
-    bx = s.fan_cx - s.fan_w / 2.0
-    by = s.fan_y - s.fan_h
-    label = "VENTILADOR"
-    mass = f"{fan_mass:.0f} kg" if fan_mass else ""
+    g = ('<g stroke="url(#steel)" stroke-width="10" stroke-linecap="round" '
+         'stroke-linejoin="round" fill="none" filter="url(#softShadow)">')
+    arm_y = s.top_y
+    fan_left = s.fan_cx - s.fan_w / 2
+    fan_right = s.fan_cx + s.fan_w / 2
+    beams, braces, arms = [], [], []
 
-    if s.fan_h >= 60 and s.fan_w >= 120:
-        # Roomy box: name in the upper third, mass in the lower third — both
-        # clear of the CG marker that sits at mid-height.
+    def beam(cx: float) -> str:
+        bw, bh = 24.0, (s.base_y - s.top_y) + 44
+        bx = cx - bw / 2
+        by = s.top_y - 24
+        fill = "url(#concreteHatch)" if concrete else "#94a3b8"
+        tag = "viga betão" if concrete else "viga metálica"
+        return (
+            f'<rect x="{bx:.0f}" y="{by:.0f}" width="{bw:.0f}" height="{bh:.0f}" '
+            f'rx="2" fill="{fill}" stroke="#64748b" stroke-width="1.5"/>'
+            f'<text x="{cx:.0f}" y="{by - 6:.0f}" text-anchor="middle" '
+            f'font-size="10" fill="{_DIM}">{tag}</text>'
+        )
+
+    if _two_sided(inp):
+        beams += [beam(s.left_x), beam(s.right_x)]
+        arms.append(f'<path d="M{s.left_x:.0f} {arm_y:.0f} L{s.right_x:.0f} {arm_y:.0f}"/>')
+        if _braced(inp):
+            braces.append(_knee(s.left_x, arm_y, fan_left, s.base_y))
+            braces.append(_knee(s.right_x, arm_y, fan_right, s.base_y))
+        beams.append(_engaste_bolts(s.left_x, arm_y, concrete))
+        beams.append(_engaste_bolts(s.right_x, arm_y, concrete))
+    else:
+        beams.append(beam(s.left_x))
+        # Arm runs from the beam face to the fan centre (carrying the fan).
+        arms.append(f'<path d="M{s.left_x:.0f} {arm_y:.0f} L{s.fan_cx:.0f} {arm_y:.0f}"/>')
+        if _braced(inp):
+            braces.append(_knee(s.left_x, arm_y, fan_left, s.base_y))
+        beams.append(_engaste_bolts(s.left_x, arm_y, concrete))
+
+    return "".join(beams) + "".join(braces) + g + "".join(arms) + "</g>"
+
+
+def _knee(beam_x: float, arm_y: float, tip_x: float, base_y: float) -> str:
+    """Knee brace (mão-francesa): diagonal from low on the beam up to the arm tip."""
+    low_y = arm_y + (base_y - arm_y) * 0.5
+    return (
+        '<g stroke="url(#steel)" stroke-width="7" stroke-linecap="round" '
+        f'fill="none" opacity="0.85">'
+        f'<path d="M{beam_x:.0f} {low_y:.0f} L{tip_x:.0f} {arm_y:.0f}"/></g>'
+    )
+
+
+def _engaste_bolts(beam_x: float, arm_y: float, concrete: bool) -> str:
+    color = "#64748b" if concrete else "#2563eb"
+    bx = beam_x + 14
+    out = ""
+    for dy in (-10, 10):
+        out += f'<circle cx="{bx:.0f}" cy="{arm_y + dy:.0f}" r="3.5" fill="{color}"/>'
+    return out
+
+
+def _fan_box(cx: float, base_y: float, w: float, h: float,
+             cg_x: float, cg_y: float, mass: float) -> str:
+    bx = cx - w / 2
+    by = base_y - h
+    label = "VENTILADOR"
+    mass_s = f"{mass:.0f} kg" if mass else ""
+    if h >= 60 and w >= 120:
         texts = (
-            f'<text x="{s.fan_cx:.0f}" y="{by + s.fan_h * 0.26:.0f}" '
-            f'text-anchor="middle" font-size="13" font-weight="700" '
-            f'fill="{_INK}">{label}</text>'
-            f'<text x="{s.fan_cx:.0f}" y="{by + s.fan_h * 0.82:.0f}" '
-            f'text-anchor="middle" font-size="11" fill="{_DIM}">{mass}</text>'
+            f'<text x="{cx:.0f}" y="{by + h * 0.26:.0f}" text-anchor="middle" '
+            f'font-size="13" font-weight="700" fill="{_INK}">{label}</text>'
+            f'<text x="{cx:.0f}" y="{by + h * 0.82:.0f}" text-anchor="middle" '
+            f'font-size="11" fill="{_DIM}">{mass_s}</text>'
         )
     else:
-        # Tight box: put a single caption above the box.
-        txt = label + (f" — {mass}" if mass else "")
+        cap = label + (f" — {mass_s}" if mass_s else "")
         texts = (
-            f'<text x="{s.fan_cx:.0f}" y="{by - 10:.0f}" text-anchor="middle" '
-            f'font-size="12" font-weight="700" fill="{_INK}">{txt}</text>'
+            f'<text x="{cx:.0f}" y="{by - 10:.0f}" text-anchor="middle" '
+            f'font-size="12" font-weight="700" fill="{_INK}">{cap}</text>'
         )
-
     return f"""
       <g filter="url(#softShadow)">
-        <rect x="{bx:.1f}" y="{by:.1f}" width="{s.fan_w:.1f}" height="{s.fan_h:.1f}"
+        <rect x="{bx:.1f}" y="{by:.1f}" width="{w:.1f}" height="{h:.1f}"
               rx="8" fill="url(#fanBody)" stroke="#64748b" stroke-width="1.5"/>
         {texts}
       </g>
-      {_cg_marker(s.cg_x, s.cg_y)}
+      {_cg_marker(cg_x, cg_y)}
     """
 
 
 def _cg_marker(cx: float, cy: float) -> str:
-    """Standard centre-of-gravity symbol: quartered circle (two filled quadrants)."""
     r = 8.0
     return (
-        f'<g>'
-        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r}" fill="white" '
+        f'<g><circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r}" fill="white" '
         f'stroke="#0f172a" stroke-width="1.5"/>'
         f'<path d="M{cx:.1f} {cy:.1f} L{cx:.1f} {cy - r:.1f} '
         f'A{r} {r} 0 0 1 {cx + r:.1f} {cy:.1f} Z" fill="#0f172a"/>'
         f'<path d="M{cx:.1f} {cy:.1f} L{cx:.1f} {cy + r:.1f} '
         f'A{r} {r} 0 0 1 {cx - r:.1f} {cy:.1f} Z" fill="#0f172a"/>'
         f'<text x="{cx + r + 4:.1f}" y="{cy - r - 2:.1f}" font-size="10" '
-        f'font-weight="700" fill="#0f172a">CG</text>'
-        f'</g>'
+        f'font-weight="700" fill="#0f172a">CG</text></g>'
     )
 
 
-def _load_arrow(s: _Scene) -> str:
-    """Design-load arrow acting at the CG line.
-
-    For a roomy box the solid arrow descends from above and stops at the box
-    top, with a dashed continuation to the CG marker. For a tight box (whose
-    caption sits above it) the solid arrow would clash with the caption, so we
-    push the arrow higher to clear it.
-    """
+def _load_arrow(s: _Elev) -> str:
     ax = s.cg_x
     box_top = s.fan_y - s.fan_h
     tight = not (s.fan_h >= 60 and s.fan_w >= 120)
-    head_gap = 30 if tight else 2          # extra room above a small box's caption
-    y0 = box_top - head_gap - 44
-    y1 = box_top - head_gap                # arrow head stops above caption / box
+    head_gap = 30 if tight else 2
+    y0 = box_top - head_gap - 40
+    y1 = box_top - head_gap
     return (
         f'<line x1="{ax:.1f}" y1="{y0:.1f}" x2="{ax:.1f}" y2="{y1:.1f}" '
         f'stroke="#dc2626" stroke-width="3" marker-end="url(#loadArrow)"/>'
@@ -368,175 +447,190 @@ def _load_arrow(s: _Scene) -> str:
     )
 
 
-def _anchors(substrate: AnchorageSubstrate, support_type: SupportType, s: _Scene) -> str:
-    concrete = substrate == AnchorageSubstrate.CONCRETE
-    color = "#64748b" if concrete else "#2563eb"
-    label = "chumbadores (betão)" if concrete else "parafusos aço-aço"
-
-    # A hanger fixes to the ceiling (top); everything else fixes to the floor.
-    if support_type == SupportType.HANGER:
-        fix_y = s.top_y
-        node_dir = -1          # hardware sits above the fixing line
-        hatch_y = fix_y - 10
-        label_y = fix_y - 22
-    else:
-        fix_y = s.base_y
-        node_dir = 1           # hardware sits below the fixing line
-        hatch_y = fix_y + 10
-        label_y = fix_y + 34
-
-    plate_y = fix_y - 2 if node_dir > 0 else fix_y - 10
-    bolt_cy = fix_y + node_dir * 4
-    nodes = []
-    for fx in (s.left_x, s.right_x):
-        nodes.append(
-            f'<rect x="{fx - 22:.0f}" y="{plate_y:.0f}" width="44" height="12" '
-            f'rx="2" fill="{color}" opacity="0.9"/>'
-            f'<circle cx="{fx - 11:.0f}" cy="{bolt_cy:.0f}" r="4" fill="#1e293b"/>'
-            f'<circle cx="{fx + 11:.0f}" cy="{bolt_cy:.0f}" r="4" fill="#1e293b"/>'
-        )
-
-    # Place the label near the left support (not centred) so it never clashes
-    # with the central fan box / CG / eccentricity annotations.
-    label_x = _MARGIN_L - 24
-    return f"""
-      <g>{''.join(nodes)}</g>
-      <line x1="{_MARGIN_L - 30:.0f}" y1="{fix_y:.0f}"
-            x2="{_W - _MARGIN_R + 30:.0f}" y2="{fix_y:.0f}"
-            stroke="#334155" stroke-width="3"/>
-      <line x1="{_MARGIN_L - 30:.0f}" y1="{hatch_y:.0f}"
-            x2="{_W - _MARGIN_R + 30:.0f}" y2="{hatch_y:.0f}"
-            stroke="#94a3b8" stroke-width="1" stroke-dasharray="6 5"/>
-      <text x="{label_x:.0f}" y="{label_y:.0f}" text-anchor="start"
-            font-size="12" fill="{_DIM}">{label}</text>
-    """
-
-
-# ── Technical dimensions ────────────────────────────────────────────────────────
-
-def _dimensions(inp: FanSupportInput, s: _Scene) -> str:
+def _elev_dims(inp: FanSupportInput, s: _Elev) -> str:
     parts: list[str] = []
-
-    # Span L — horizontal dimension below the structure.
-    dim_y = s.base_y + 56
+    dim_y = s.base_y + 50
     parts.append(_hdim(s.left_x, s.right_x, dim_y, f"L = {inp.span_mm:.0f} mm"))
-
-    # Height h — vertical dimension on the right.
-    dim_x = _W - _MARGIN_R + 34
+    dim_x = _PANEL_W - _M_R + 30
     parts.append(_vdim(dim_x, s.top_y, s.base_y, f"h = {inp.installation_height_mm:.0f} mm"))
-
-    # Support axis (reference) — dashed vertical line at the span centre.
     parts.append(
-        f'<line x1="{s.axis_x:.1f}" y1="{s.top_y - 4:.1f}" '
-        f'x2="{s.axis_x:.1f}" y2="{s.base_y:.1f}" stroke="#94a3b8" '
-        f'stroke-width="1" stroke-dasharray="4 4"/>'
+        f'<line x1="{s.axis_x:.1f}" y1="{s.top_y - 4:.1f}" x2="{s.axis_x:.1f}" '
+        f'y2="{s.base_y:.1f}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4"/>'
     )
-
-    # Eccentricity e — only when the CG is offset from the axis. Placed well
-    # above the box top so it never clashes with the fixing-line label.
     if abs(s.ecc_mm) >= 0.5:
-        ey = s.fan_y - s.fan_h - 34
+        ey = s.fan_y - s.fan_h - 30
         parts.append(_hdim(s.axis_x, s.cg_x, ey, f"e = {s.ecc_mm:.0f} mm"))
-
     return "".join(parts)
 
 
+# ── PLAN (planta) ──────────────────────────────────────────────────────────────────
+
+def _draw_plan(inp: FanSupportInput) -> str:
+    """Top view: support beam(s), fan footprint to scale, fixing holes, CG."""
+    span = max(inp.span_mm, 1.0)
+    fan_w_mm, fan_len_mm, _bh, _mass = _fan_dims_mm(inp)
+    ecc_mm = inp.eccentricity_mm
+    concrete = inp.anchorage_substrate == AnchorageSubstrate.CONCRETE
+    color = "#64748b" if concrete else "#2563eb"
+    hole_label = "chumbadores" if concrete else "parafusos"
+
+    # Scale to fit span (x) and the fan length (y, depth in plan).
+    scale = max(min(_BAND_W / max(span, fan_len_mm * 1.2),
+                    _BAND_H / max(fan_len_mm * 1.6, 1.0)), 1e-3)
+
+    cx0 = _PANEL_W / 2.0
+    cy0 = _M_T + _BAND_H / 2.0
+    span_px = span * scale
+    left_x = cx0 - span_px / 2
+    right_x = cx0 + span_px / 2
+
+    fw = fan_w_mm * scale          # footprint width (along span, x)
+    fl = fan_len_mm * scale        # footprint length (depth, y)
+    fan_cx = (cx0 + ecc_mm * scale) if not _is_engaste(inp) or _two_sided(inp) else (right_x + ecc_mm * scale)
+    if inp.support_type == SupportType.CANTILEVER_1:
+        fan_cx = right_x + ecc_mm * scale
+    fan_cy = cy0
+
+    parts = [_grid()]
+
+    # Support beam(s) as horizontal strips in plan.
+    beam_h = 22.0
+    fill = "url(#concreteHatch)" if concrete else "#cbd5e1"
+
+    def plan_beam(bx: float) -> str:
+        return (
+            f'<rect x="{bx - 13:.0f}" y="{_M_T:.0f}" width="26" '
+            f'height="{_BAND_H:.0f}" fill="{fill}" stroke="#64748b" '
+            f'stroke-width="1.5"/>'
+        )
+
+    if inp.support_type == SupportType.HANGER:
+        # Four hanger points around the footprint corners.
+        beam_note = "tirantes (4 pontos)"
+    elif _two_sided(inp):
+        parts.append(plan_beam(left_x))
+        parts.append(plan_beam(right_x))
+        beam_note = "vigas de apoio (2 lados)"
+    else:
+        parts.append(plan_beam(left_x))
+        beam_note = "viga de apoio (esquerda)"
+
+    # Fan footprint outline.
+    parts.append(
+        f'<rect x="{fan_cx - fw / 2:.1f}" y="{fan_cy - fl / 2:.1f}" '
+        f'width="{fw:.1f}" height="{fl:.1f}" rx="6" fill="url(#fanBody)" '
+        f'stroke="#64748b" stroke-width="1.5"/>'
+        f'<text x="{fan_cx:.0f}" y="{fan_cy - fl * 0.28:.0f}" text-anchor="middle" '
+        f'font-size="12" font-weight="700" fill="{_INK}">VENTILADOR</text>'
+    )
+
+    # Fixing holes.
+    holes = _plan_holes(inp, left_x, right_x, fan_cx, fan_cy, fw, fl, color)
+    parts.append(holes)
+
+    # CG marker in plan (offset by eccentricity from the support axis).
+    parts.append(_cg_marker(fan_cx, fan_cy))
+
+    # Eccentricity dimension (axis -> CG) in plan.
+    axis_x = right_x if inp.support_type == SupportType.CANTILEVER_1 else cx0
+    parts.append(
+        f'<line x1="{axis_x:.1f}" y1="{_M_T:.1f}" x2="{axis_x:.1f}" '
+        f'y2="{_M_T + _BAND_H:.1f}" stroke="#94a3b8" stroke-width="1" '
+        f'stroke-dasharray="4 4"/>'
+    )
+    if abs(ecc_mm) >= 0.5:
+        ey = fan_cy - fl / 2 - 22
+        parts.append(_hdim(axis_x, fan_cx, ey, f"e = {ecc_mm:.0f} mm"))
+
+    # Footprint width dimension (span direction).
+    parts.append(_hdim(fan_cx - fw / 2, fan_cx + fw / 2, fan_cy + fl / 2 + 28,
+                       f"b = {fan_w_mm:.0f} mm"))
+
+    # Engaste side marker.
+    if _is_engaste(inp):
+        parts.append(
+            f'<text x="{left_x:.0f}" y="{_M_T - 8:.0f}" text-anchor="middle" '
+            f'font-size="10" font-weight="700" fill="#b45309">ENGASTE</text>'
+        )
+    parts.append(
+        f'<text x="{_PANEL_W / 2:.0f}" y="{_M_T + _BAND_H + 56:.0f}" '
+        f'text-anchor="middle" font-size="11" fill="{_DIM}">{beam_note} — {hole_label}</text>'
+    )
+    return "".join(parts)
+
+
+def _plan_holes(inp: FanSupportInput, left_x: float, right_x: float,
+                fan_cx: float, fan_cy: float, fw: float, fl: float,
+                color: str) -> str:
+    """Fixing holes shown in plan at the connection zone."""
+    r = 3.5
+    pts: list[tuple[float, float]] = []
+    dy = fl * 0.32
+    if inp.support_type == SupportType.HANGER:
+        # Four points near the footprint corners.
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                pts.append((fan_cx + sx * fw * 0.4, fan_cy + sy * dy))
+    elif _two_sided(inp):
+        for bx in (left_x, right_x):
+            for sy in (-1, 1):
+                pts.append((bx, fan_cy + sy * dy))
+    else:
+        for sy in (-1, 1):
+            pts.append((left_x, fan_cy + sy * dy))
+            pts.append((left_x + 18, fan_cy + sy * dy))
+    return "".join(
+        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="none" '
+        f'stroke="{color}" stroke-width="2"/>' for x, y in pts
+    )
+
+
+# ── Shared primitives ──────────────────────────────────────────────────────────────
+
+def _grid() -> str:
+    lines = []
+    step = 40
+    for gx in range(_M_L, _PANEL_W - _M_R + 1, step):
+        lines.append(
+            f'<line x1="{gx}" y1="{_M_T}" x2="{gx}" y2="{_M_T + _BAND_H}" '
+            f'stroke="{_GRID}" stroke-width="1"/>'
+        )
+    for gy in range(_M_T, _M_T + _BAND_H + 1, step):
+        lines.append(
+            f'<line x1="{_M_L}" y1="{gy}" x2="{_PANEL_W - _M_R}" y2="{gy}" '
+            f'stroke="{_GRID}" stroke-width="1"/>'
+        )
+    return f'<g opacity="0.7">{"".join(lines)}</g>'
+
+
 def _hdim(x0: float, x1: float, y: float, label: str) -> str:
+    if x0 > x1:
+        x0, x1 = x1, x0
+    mid = (x0 + x1) / 2
     return (
-        f'<line x1="{x0:.0f}" y1="{y - 8:.0f}" x2="{x0:.0f}" y2="{y + 8:.0f}" '
-        f'stroke="{_DIM}" stroke-width="1"/>'
-        f'<line x1="{x1:.0f}" y1="{y - 8:.0f}" x2="{x1:.0f}" y2="{y + 8:.0f}" '
-        f'stroke="{_DIM}" stroke-width="1"/>'
-        f'<line x1="{x0:.0f}" y1="{y:.0f}" x2="{x1:.0f}" y2="{y:.0f}" '
-        f'stroke="{_DIM}" stroke-width="1.4" '
-        f'marker-start="url(#dimArrow)" marker-end="url(#dimArrow)"/>'
-        f'<rect x="{(x0 + x1) / 2 - 62:.0f}" y="{y - 12:.0f}" width="124" height="22" '
-        f'rx="4" fill="#f8fafc"/>'
-        f'<text x="{(x0 + x1) / 2:.0f}" y="{y + 4:.0f}" text-anchor="middle" '
-        f'font-size="13" font-weight="600" fill="{_INK}">{escape(label)}</text>'
+        f'<line x1="{x0:.0f}" y1="{y - 7:.0f}" x2="{x0:.0f}" y2="{y + 7:.0f}" stroke="{_DIM}" stroke-width="1"/>'
+        f'<line x1="{x1:.0f}" y1="{y - 7:.0f}" x2="{x1:.0f}" y2="{y + 7:.0f}" stroke="{_DIM}" stroke-width="1"/>'
+        f'<line x1="{x0:.0f}" y1="{y:.0f}" x2="{x1:.0f}" y2="{y:.0f}" stroke="{_DIM}" '
+        f'stroke-width="1.4" marker-start="url(#dimArrow)" marker-end="url(#dimArrow)"/>'
+        f'<rect x="{mid - 58:.0f}" y="{y - 11:.0f}" width="116" height="20" rx="4" fill="#f8fafc"/>'
+        f'<text x="{mid:.0f}" y="{y + 4:.0f}" text-anchor="middle" font-size="12" '
+        f'font-weight="600" fill="{_INK}">{escape(label)}</text>'
     )
 
 
 def _vdim(x: float, y0: float, y1: float, label: str) -> str:
     cy = (y0 + y1) / 2
     return (
-        f'<line x1="{x - 8:.0f}" y1="{y0:.0f}" x2="{x + 8:.0f}" y2="{y0:.0f}" '
-        f'stroke="{_DIM}" stroke-width="1"/>'
-        f'<line x1="{x - 8:.0f}" y1="{y1:.0f}" x2="{x + 8:.0f}" y2="{y1:.0f}" '
-        f'stroke="{_DIM}" stroke-width="1"/>'
-        f'<line x1="{x:.0f}" y1="{y0:.0f}" x2="{x:.0f}" y2="{y1:.0f}" '
-        f'stroke="{_DIM}" stroke-width="1.4" '
-        f'marker-start="url(#dimArrow)" marker-end="url(#dimArrow)"/>'
-        f'<text x="{x + 6:.0f}" y="{cy:.0f}" text-anchor="middle" '
-        f'font-size="13" font-weight="600" fill="{_INK}" '
-        f'transform="rotate(90 {x + 6:.0f} {cy:.0f})">{escape(label)}</text>'
+        f'<line x1="{x - 7:.0f}" y1="{y0:.0f}" x2="{x + 7:.0f}" y2="{y0:.0f}" stroke="{_DIM}" stroke-width="1"/>'
+        f'<line x1="{x - 7:.0f}" y1="{y1:.0f}" x2="{x + 7:.0f}" y2="{y1:.0f}" stroke="{_DIM}" stroke-width="1"/>'
+        f'<line x1="{x:.0f}" y1="{y0:.0f}" x2="{x:.0f}" y2="{y1:.0f}" stroke="{_DIM}" '
+        f'stroke-width="1.4" marker-start="url(#dimArrow)" marker-end="url(#dimArrow)"/>'
+        f'<text x="{x + 5:.0f}" y="{cy:.0f}" text-anchor="middle" font-size="12" '
+        f'font-weight="600" fill="{_INK}" transform="rotate(90 {x + 5:.0f} {cy:.0f})">{escape(label)}</text>'
     )
 
 
-# ── Background grid ─────────────────────────────────────────────────────────────
-
-def _grid() -> str:
-    lines = []
-    step = 40
-    for gx in range(_MARGIN_L, _W - _MARGIN_R + 1, step):
-        lines.append(
-            f'<line x1="{gx}" y1="{_MARGIN_T}" x2="{gx}" y2="{_MARGIN_T + _DRAW_H}" '
-            f'stroke="{_GRID}" stroke-width="1"/>'
-        )
-    for gy in range(_MARGIN_T, _MARGIN_T + _DRAW_H + 1, step):
-        lines.append(
-            f'<line x1="{_MARGIN_L}" y1="{gy}" x2="{_W - _MARGIN_R}" y2="{gy}" '
-            f'stroke="{_GRID}" stroke-width="1"/>'
-        )
-    return f'<g opacity="0.8">{"".join(lines)}</g>'
-
-
-# ── Utilisation gauge ───────────────────────────────────────────────────────────
-
-def _gauge(eta: float, status: str, color: str) -> str:
-    # Pinned to the top-right band, above _MARGIN_T so it clears the structure.
-    bar_x, bar_y, bar_w, bar_h = _W - 260, 56, 168, 14
-    pct = max(0.0, min(eta, 1.0))
-    fill_w = bar_w * pct
-    return f"""
-      <g>
-        <text x="{bar_x:.0f}" y="{bar_y - 6:.0f}" font-size="12" font-weight="700"
-              fill="{_INK}">Utilização  &#951; = {eta * 100:.1f}%</text>
-        <rect x="{bar_x:.0f}" y="{bar_y:.0f}" width="{bar_w}" height="{bar_h}"
-              rx="7" fill="#e2e8f0"/>
-        <rect x="{bar_x:.0f}" y="{bar_y:.0f}" width="{fill_w:.0f}" height="{bar_h}"
-              rx="7" fill="{color}"/>
-        <rect x="{bar_x + bar_w + 8:.0f}" y="{bar_y - 2:.0f}" width="92" height="20"
-              rx="10" fill="{color}"/>
-        <text x="{bar_x + bar_w + 54:.0f}" y="{bar_y + 12:.0f}" text-anchor="middle"
-              font-size="11" font-weight="700" fill="white">{escape(status)}</text>
-      </g>
-    """
-
-
-# ── Legend card ─────────────────────────────────────────────────────────────────
-
-def _legend(label: str, section: str, substrate: str,
-            status: str, color: str) -> str:
-    # Pinned to the top-left band, above _MARGIN_T so it clears the structure.
-    x, y, w, h = 50, 40, 250, 92
-    return f"""
-      <g>
-        <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="10"
-              fill="#f1f5f9" stroke="#dbe4ee"/>
-        <rect x="{x}" y="{y}" width="6" height="{h}" rx="3" fill="{color}"/>
-        <text x="{x + 18}" y="{y + 26}" font-size="15" font-weight="700"
-              fill="{_INK}">{escape(label)}</text>
-        <text x="{x + 18}" y="{y + 50}" font-size="13" fill="#334155">Perfil: {escape(section)}</text>
-        <text x="{x + 18}" y="{y + 74}" font-size="13" fill="#334155">Fixação: {escape(substrate)}</text>
-      </g>
-    """
-
-
-# ── Helpers ─────────────────────────────────────────────────────────────────────
-
 def _utilisation(res: FanSupportResult) -> float:
-    """Best-available governing utilisation ratio, clamped to a sane range."""
     sv = getattr(res, "section_verification", None)
     eta = getattr(sv, "utilization_ratio", None) if sv else None
     if eta is None:

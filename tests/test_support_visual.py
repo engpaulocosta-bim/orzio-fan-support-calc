@@ -1,9 +1,9 @@
-from sfsc.enums import AnchorageSubstrate, CheckerStatus
+from sfsc.enums import AnchorageSubstrate, CantileverSubtype, CheckerStatus, SupportType
 from sfsc.engines.selector import run_full_calculation
 from sfsc.ui.support_visual import support_preview_html
 
 
-def test_support_preview_contains_model_status_and_substrate(base_inp):
+def test_support_preview_has_both_views_and_status(base_inp):
     inp = base_inp.model_copy(update={
         "anchorage_substrate": AnchorageSubstrate.STEEL_STRUCTURE,
     })
@@ -14,9 +14,17 @@ def test_support_preview_contains_model_status_and_substrate(base_inp):
     html = support_preview_html(inp, res)
 
     assert "<svg" in html
-    assert "Hanger" in html
+    assert "PLANTA" in html
+    assert "ALÇADO" in html
     assert "Estrutura metálica" in html
     assert "PASS" in html
+
+
+def test_support_preview_hanger_labelled_pendurado(base_inp):
+    # base_inp is a HANGER in the test fixtures.
+    ctx = run_full_calculation(base_inp)
+    html = support_preview_html(base_inp, ctx.fan_support_result)
+    assert "Pendurado" in html
 
 
 def test_support_preview_is_self_contained_document(base_inp):
@@ -38,7 +46,6 @@ def test_support_preview_renders_real_dimensions(base_inp):
 
     assert f"L = {base_inp.span_mm:.0f} mm" in html
     assert f"h = {base_inp.installation_height_mm:.0f} mm" in html
-    # Utilisation gauge present.
     assert "Utilização" in html
 
 
@@ -71,3 +78,16 @@ def test_support_preview_omits_eccentricity_dimension_when_centred(base_inp):
     html = support_preview_html(inp, ctx.fan_support_result)
 
     assert "e = " not in html
+
+
+def test_support_preview_engaste_shows_beam_and_engaste_marker(base_inp):
+    inp = base_inp.model_copy(update={
+        "support_type": SupportType.CANTILEVER_1,
+        "cantilever_subtype": CantileverSubtype.BRACKETED,
+    })
+    ctx = run_full_calculation(inp)
+
+    html = support_preview_html(inp, ctx.fan_support_result)
+
+    assert "ENGASTE" in html
+    assert "viga" in html.lower()        # pre-existing support beam is drawn

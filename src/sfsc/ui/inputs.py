@@ -29,6 +29,14 @@ _SUBSTRATE_LABELS = {
     "concrete": "Betão",
     "steel_structure": "Estrutura metálica",
 }
+# Friendly menu labels mapped to the internal SupportType. Only the two real
+# concepts are offered: suspended (hanger) and fixed to an existing beam
+# (cantilever, one or two sides). The other engines stay in the code base.
+_SUPPORT_CHOICES = {
+    "Pendurado (tirantes)": SupportType.HANGER,
+    "Engastado (1 lado)": SupportType.CANTILEVER_1,
+    "Engastado (2 lados)": SupportType.CANTILEVER_2,
+}
 
 
 def render_sidebar() -> tuple[bool, Callable[[], FanSupportInput]]:
@@ -66,14 +74,24 @@ def render_sidebar() -> tuple[bool, Callable[[], FanSupportInput]]:
                 })
 
         # ── Tipo de suporte ──
+        # Apenas os dois conceitos reais: pendurado (tirantes) e engastado em
+        # viga preexistente (1 ou 2 lados). Mapeiam para os SupportType internos
+        # sem alterar os motores de cálculo.
         st.subheader("3. Tipo de Suporte")
-        support_type_val = st.selectbox("Tipo", [e.value for e in SupportType],
-                                        format_func=lambda x: x.replace("_", " ").title())
-        support_type = SupportType(support_type_val)
+        support_choice = st.selectbox(
+            "Tipo",
+            list(_SUPPORT_CHOICES.keys()),
+        )
+        support_type = _SUPPORT_CHOICES[support_choice]
 
         cantilever_subtype = None
-        if support_type == SupportType.CANTILEVER_1:
-            csub = st.radio("Subtipo consola", ["pure", "bracketed"], horizontal=True)
+        if support_type in (SupportType.CANTILEVER_1, SupportType.CANTILEVER_2):
+            csub = st.radio(
+                "Contraventamento",
+                ["bracketed", "pure"],
+                format_func=lambda x: "Com mão-francesa" if x == "bracketed" else "Sem mão-francesa",
+                horizontal=True,
+            )
             cantilever_subtype = CantileverSubtype(csub)
 
         operation_mode = OperationMode.DIMENSION

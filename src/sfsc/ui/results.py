@@ -10,7 +10,6 @@ import datetime
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 from sfsc.assessment import assess_result
 from sfsc.enums import AnchorageSubstrate
@@ -102,11 +101,11 @@ def render_results(ctx, fallback_support_tag: str, fallback_steel_grade) -> None
 def _render_model_tab(ctx, res) -> None:
     if ctx.fan_support_input:
         # Renderiza num iframe isolado: o sanitizador do st.markdown corrompe
-        # SVG complexo e despeja a marcação como texto.
-        components.html(
+        # SVG complexo e despeja a marcação como texto. st.iframe aceita HTML
+        # inline e substitui o (depreciado) components.html.
+        st.iframe(
             support_preview_html(ctx.fan_support_input, res),
-            height=600,
-            scrolling=False,
+            height=620,
         )
 
 
