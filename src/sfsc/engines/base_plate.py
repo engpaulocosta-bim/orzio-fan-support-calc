@@ -2,7 +2,7 @@
 from __future__ import annotations
 import math
 from ..models import FanSupportInput, SteelSection, LoadCombination, BasePlateResult
-from ..enums import SteelGrade, StructuralCode, CheckerStatus, FanConnectionType
+from ..enums import SteelGrade, StructuralCode, CheckerStatus, FanConnectionType, AnchorageSubstrate
 from ..catalogs.steel_grade_catalog import get_grade_spec
 
 # Resistência do betão [MPa] — fck por designação
@@ -37,13 +37,14 @@ def calculate_base_plate(
     fy_mpa   = spec.fy_mpa
     gamma_M0 = spec.gamma_M0
 
+    is_concrete_anchor = inp.anchorage_substrate == AnchorageSubstrate.CONCRETE
     fck = _FCK.get(concrete_grade, 25.0)
     fcd = fck / 1.5   # resistência de cálculo betão [MPa]
 
     # Tensão de contacto admissível (bearing): f_jd = beta_j × kj × fcd
     beta_j = 0.67
     kj     = 1.0      # conservativo
-    f_jd   = beta_j * kj * fcd   # MPa
+    f_jd   = beta_j * kj * fcd if is_concrete_anchor else fy_mpa / gamma_M0   # MPa
 
     P_kN = abs(combination.V_z_kN)
     P_N  = P_kN * 1000.0
@@ -153,17 +154,17 @@ def calculate_base_plate(
     eta_pullout = N_Ed_kN / pullout_capacity_kN if pullout_capacity_kN > 0 else 99.0
     eta_pryout = V_Ed_kN / pryout_capacity_kN if pryout_capacity_kN > 0 else 0.0
 
-    if eta_cone > 1.0:
+    if is_concrete_anchor and eta_cone > 1.0:
         warnings.append(
             f"Cone de betão insuficiente no modelo simplificado (η={eta_cone:.2f}). "
             "Rever embebimento, distância ao bordo e classe do betão."
         )
-    if eta_pullout > 1.0:
+    if is_concrete_anchor and eta_pullout > 1.0:
         warnings.append(
             f"Arrancamento/pull-out insuficiente no modelo simplificado (η={eta_pullout:.2f}). "
             "Aumentar embebimento ou diâmetro das ancoragens."
         )
-    if eta_pryout > 1.0:
+    if is_concrete_anchor and eta_pryout > 1.0:
         warnings.append(
             f"Pry-out por corte insuficiente no modelo simplificado (η={eta_pryout:.2f}). "
             "Rever grupo de ancoragens."
@@ -172,6 +173,19 @@ def calculate_base_plate(
     # ── Soldadura chapa → perfil ──────────────────────────────────────────────
     # Cordão filete em torno do banzo do perfil
     # Comprimento efectivo: 2 × (b_section + h_section)
+    if not is_concrete_anchor:
+        concrete_cone_capacity_kN = 0.0
+        pullout_capacity_kN = 0.0
+        pryout_capacity_kN = 0.0
+        eta_cone = 0.0
+        eta_pullout = 0.0
+        eta_pryout = 0.0
+        warnings.append(
+            "Fixação em estrutura metálica: cone de betão, pull-out e pry-out "
+            "não se aplicam. Confirmar espessura, bordo livre e rigidez do "
+            "elemento metálico receptor."
+        )
+
     L_weld_mm = 2.0 * (section.b_mm + section.h_mm)
     # Resistência do cordão: f_vw,d = fu / (sqrt(3) × beta_w × gamma_M2)
     fu_mpa    = spec.fu_mpa
@@ -225,6 +239,8 @@ def calculate_base_plate(
     )
 
     return BasePlateResult(
+        anchorage_substrate=inp.anchorage_substrate,
+        concrete_grade=concrete_grade if is_concrete_anchor else "",
         length_mm=round(L_base, 0),
         width_mm=round(B_base, 0),
         thickness_mm=t_plate_mm,

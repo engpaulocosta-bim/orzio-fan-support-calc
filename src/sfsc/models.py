@@ -6,7 +6,7 @@ from .enums import (
     SupportType, CantileverSubtype, Country, StructuralCode, SeismicCode,
     SteelGrade, SectionFamily, ExposureClass, AntiVibrationType,
     OperationMode, ClassificationLevel, CheckerStatus,
-    FanConnectionType, FanType,
+    FanConnectionType, FanType, AnchorageSubstrate,
 )
 
 
@@ -93,6 +93,18 @@ class FanSupportInput(BaseModel):
     exposure_class: ExposureClass = ExposureClass.INTERIOR_DRY
 
     # Betão de suporte (para ancoragens)
+    anchorage_substrate: AnchorageSubstrate = Field(default=AnchorageSubstrate.CONCRETE,
+        description="Material onde o suporte e afixado: betao ou estrutura metalica")
+    receiver_steel_grade: SteelGrade = Field(default=SteelGrade.S235,
+        description="Aco do elemento metalico receptor quando a fixacao e aco-aco")
+    receiver_plate_thickness_mm: float = Field(default=10.0, gt=0,
+        description="Espessura do elemento metalico receptor [mm]")
+    receiver_edge_distance_mm: float = Field(default=50.0, gt=0,
+        description="Menor bordo livre disponivel no elemento receptor [mm]")
+    receiver_spacing_mm: float = Field(default=80.0, gt=0,
+        description="Menor espacamento disponivel entre conectores no receptor [mm]")
+    receiver_bolt_grade: str = Field(default="8.8",
+        description="Classe dos parafusos da ligacao ao elemento receptor")
     concrete_grade: str = Field(default="C25/30",
         description="Classe do betão de fixação. Ex: C25/30, C30/37, fck=25MPa")
 
@@ -200,6 +212,8 @@ class SectionVerificationResult(BaseModel):
 
 class BasePlateResult(BaseModel):
     """Resultado do dimensionamento da mesa / chapa de assento."""
+    anchorage_substrate: AnchorageSubstrate = AnchorageSubstrate.CONCRETE
+    concrete_grade: str = ""
     length_mm: float
     width_mm: float
     thickness_mm: float
@@ -237,6 +251,13 @@ class BasePlateResult(BaseModel):
 
 class AnchorResult(BaseModel):
     """Resultado do dimensionamento de ancoragens."""
+    anchorage_substrate: AnchorageSubstrate = AnchorageSubstrate.CONCRETE
+    concrete_grade: str = ""
+    connector_label: str = "Ancoragens"
+    receiver_steel_grade: Optional[SteelGrade] = None
+    receiver_plate_thickness_mm: float = 0.0
+    receiver_edge_distance_mm: float = 0.0
+    receiver_spacing_mm: float = 0.0
     n_anchors: int
     anchor_diameter_mm: float
     embedment_depth_mm: float
@@ -245,6 +266,10 @@ class AnchorResult(BaseModel):
     utilization_tension: float
     utilization_shear: float
     utilization_combined: float
+    utilization_bearing: float = 0.0
+    utilization_tearout: float = 0.0
+    utilization_block_shear: float = 0.0
+    utilization_prying: float = 0.0
     status: CheckerStatus
     code_clause: str = ""
     warnings: list[str] = Field(default_factory=list)

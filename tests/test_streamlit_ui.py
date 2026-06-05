@@ -76,3 +76,24 @@ def test_calculation_lists_passing_sections_for_user_choice():
     ]
     assert profile_selectors
     assert len(profile_selectors[0].options) >= 1
+
+
+def test_out_of_scope_input_shows_controlled_message_without_traceback():
+    app = AppTest.from_file("app.py", default_timeout=60)
+    app.run()
+
+    operating_weight_inputs = [
+        field for field in app.number_input
+        if "Peso operação" in field.label or "Peso opera" in field.label
+    ]
+    assert operating_weight_inputs
+    operating_weight_inputs[0].set_value(3000.0)
+
+    calc = [b for b in app.button if "Calcular" in b.label][0]
+    calc.click()
+    app.run()
+
+    assert not app.exception
+    assert not app.get("exception")
+    warnings = [item.value for item in app.warning]
+    assert any("Cálculo não executado" in text for text in warnings)

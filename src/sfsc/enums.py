@@ -103,6 +103,11 @@ class FanConnectionType(str, Enum):
     BOTH           = "both"           # utilizador define caso a caso
 
 
+class AnchorageSubstrate(str, Enum):
+    CONCRETE = "concrete"
+    STEEL_STRUCTURE = "steel_structure"
+
+
 class FanType(str, Enum):
     AXIAL         = "axial"
     CENTRIFUGAL   = "centrifugal"

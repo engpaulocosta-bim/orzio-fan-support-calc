@@ -58,11 +58,11 @@ def calculate_metal_connection(
     diagonal_member = _diagonal_member(inp, section)
 
     if not spacing_ok:
-        warnings.append("Espacamento dos parafusos perfil-perfil inferior ao minimo simplificado.")
+        warnings.append("Espaçamento dos parafusos perfil-perfil inferior ao mínimo simplificado.")
     if not edge_ok:
-        warnings.append("Bordo livre dos parafusos perfil-perfil inferior ao minimo simplificado.")
+        warnings.append("Bordo livre dos parafusos perfil-perfil inferior ao mínimo simplificado.")
     if stiffener_required:
-        warnings.append("Stiffeners recomendados no no principal devido a momento/concentracao de carga.")
+        warnings.append("Stiffeners recomendados no nó principal devido a momento/concentração de carga.")
     if weld_utilization > 1.0:
         warnings.append("Soldadura principal insuficiente no modelo simplificado.")
 
@@ -119,9 +119,9 @@ def _connection_type(inp: FanSupportInput) -> str:
     if inp.support_type == SupportType.CANTILEVER_2:
         return "Dupla consola com chapas laterais e parafusos perfil-perfil"
     if inp.support_type == SupportType.CANTILEVER_3:
-        return "Ligacao de joelho de portico com stiffeners"
+        return "Ligação de joelho de pórtico com stiffeners"
     if inp.support_type == SupportType.PEDESTAL:
-        return "Chapas de ligacao patim-pe e cantoneiras de apoio"
+        return "Chapas de ligação patim-pé e cantoneiras de apoio"
     return "Mesa combinada com pendurais, cleats e diagonais locais"
 
 
@@ -226,5 +226,5 @@ def _code_clause(code: StructuralCode) -> str:
     if code.value.startswith("EN"):
         return "EN 1993-1-8 cl. 3, 4, 6 (simplificado)"
     if code == StructuralCode.NBR_8800:
-        return "NBR 8800 ligacoes parafusadas/soldadas (simplificado)"
-    return "NCh427 ligacoes metalicas (referencia simplificada)"
+        return "NBR 8800 ligações parafusadas/soldadas (simplificado)"
+    return "NCh427 ligações metálicas (referência simplificada)"

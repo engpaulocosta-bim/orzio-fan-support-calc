@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 from ..models import ReportContext
 from ..assessment import assess_result
+from ..enums import AnchorageSubstrate
 
 # Cores Orzio
 BLUE    = (0.08, 0.28, 0.90)   # #1447E6
@@ -219,7 +220,8 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
             ("Anti-vibração", inp.anti_vibration.value),
             ("Mesa / base plate", "Sim" if inp.include_base_plate else "Não"),
             ("Classe de exposição", inp.exposure_class.value),
-            ("Betão de suporte", inp.concrete_grade),
+            ("Material de fixação", inp.anchorage_substrate.value),
+            ("Betão de suporte", inp.concrete_grade if inp.anchorage_substrate == AnchorageSubstrate.CONCRETE else "n/a"),
         ]
         if inp.cantilever_subtype:
             rows_geo.insert(1, ("Subtipo consola", inp.cantilever_subtype.value))
@@ -298,6 +300,7 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
             ("Dimensões L × B", f"{bp.length_mm:.0f} × {bp.width_mm:.0f} mm"),
             ("Espessura", f"{bp.thickness_mm:.0f} mm"),
             ("Aço da chapa", bp.steel_grade.value),
+            ("Material de fixação", bp.anchorage_substrate.value),
             ("Tensão de contacto", f"{bp.bearing_stress_mpa:.2f} MPa  (η = {bp.utilization_bearing:.3f})"),
             ("Flexão da chapa", f"η = {bp.utilization_bending:.3f}"),
             ("Parafusos ventilador → chapa", f"M{bp.bolt_diameter_mm:.0f} × {bp.n_bolts_fan}  (η = {bp.bolt_utilization_fan:.3f})"),
@@ -319,12 +322,18 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     if res and res.anchor:
         anc = res.anchor
         story.append(kv_table([
+            ("Material de fixação", anc.anchorage_substrate.value),
+            ("Tipo de conector", anc.connector_label),
+            ("Aço receptor", anc.receiver_steel_grade.value if anc.receiver_steel_grade else ""),
+            ("Espessura receptor", f"{anc.receiver_plate_thickness_mm:.1f} mm" if anc.receiver_plate_thickness_mm else "n/a"),
+            ("Bordo / espaçamento receptor", f"{anc.receiver_edge_distance_mm:.1f} / {anc.receiver_spacing_mm:.1f} mm" if anc.receiver_plate_thickness_mm else "n/a"),
             ("Número de ancoragens", str(anc.n_anchors)),
             ("Diâmetro", f"Ø{anc.anchor_diameter_mm:.0f} mm"),
             ("Profundidade de embebimento", f"{anc.embedment_depth_mm:.0f} mm"),
             ("Capacidade de tracção total", f"{anc.tensile_capacity_kN:.2f} kN  (η = {anc.utilization_tension:.3f})"),
             ("Capacidade de corte total", f"{anc.shear_capacity_kN:.2f} kN  (η = {anc.utilization_shear:.3f})"),
             ("Interacção tracção + corte", f"η_comb = {anc.utilization_combined:.3f}"),
+            ("Esmagamento / bordo / bloco / prying", f"η = {max(anc.utilization_bearing, anc.utilization_tearout, anc.utilization_block_shear, anc.utilization_prying):.3f}"),
             ("Cláusula", anc.code_clause),
         ]))
         story.append(Spacer(1, 4*mm))

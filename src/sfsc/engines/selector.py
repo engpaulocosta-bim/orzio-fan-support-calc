@@ -7,7 +7,7 @@ from ..models import (
     CitationItem, WarningItem,
 )
 from ..enums import (
-    SupportType, StructuralCode, Country, OperationMode,
+    SupportType, StructuralCode, Country, OperationMode, AnchorageSubstrate,
 )
 from ..validators import validate_fan_support_input
 from ..catalogs.seismic_catalog import get_seismic_factor, get_seismic_code
@@ -225,6 +225,13 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         clause="cl. 7.2.1 + 7.2.2",
         description="Dimensionamento de ancoragens — tracção, corte e interacção",
     ))
+    if inp.anchorage_substrate == AnchorageSubstrate.STEEL_STRUCTURE:
+        citations.append(CitationItem(
+            standard_id="EN1993-1-8",
+            clause="cl. 3.6 + 3.7",
+            description="Ligação aparafusada a estrutura metálica",
+        ))
+
     for w in anc_result.warnings:
         warn_items.append(WarningItem(code="W-ANC", severity="WARNING",
                                       message=w, module="anchor"))
