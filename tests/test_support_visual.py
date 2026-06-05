@@ -52,3 +52,22 @@ def test_support_preview_handles_concrete_substrate(base_inp):
     html = support_preview_html(inp, res)
 
     assert "betão" in html.lower()
+
+
+def test_support_preview_shows_eccentricity_dimension_when_offset(base_inp):
+    inp = base_inp.model_copy(update={"eccentricity_mm": 120.0})
+    ctx = run_full_calculation(inp)
+
+    html = support_preview_html(inp, ctx.fan_support_result)
+
+    assert "e = 120 mm" in html
+    assert "CG" in html          # centre-of-gravity marker is labelled
+
+
+def test_support_preview_omits_eccentricity_dimension_when_centred(base_inp):
+    inp = base_inp.model_copy(update={"eccentricity_mm": 0.0})
+    ctx = run_full_calculation(inp)
+
+    html = support_preview_html(inp, ctx.fan_support_result)
+
+    assert "e = " not in html

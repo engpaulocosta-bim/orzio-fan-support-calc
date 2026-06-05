@@ -42,17 +42,21 @@ _GRID = "#e8eef5"
 
 @dataclass
 class _Scene:
-    """Resolved drawing scene in canvas coordinates."""
+    """Resolved drawing scene in canvas coordinates (everything to one scale)."""
 
-    scale: float          # mm -> px
+    scale: float          # mm -> px (shared by structure AND fan)
     base_y: float         # ground / fixing line (canvas y)
     top_y: float          # top of the steel frame
     left_x: float         # left support line
     right_x: float        # right support / span end
-    fan_cx: float         # fan centre x
-    fan_y: float          # baseline the fan rests on (its bottom edge)
-    fan_w: float          # fan footprint width in px
-    fan_h: float          # fan body height in px
+    axis_x: float         # support axis (span centre) — reference for eccentricity
+    fan_cx: float         # fan centre x (= axis_x + eccentricity)
+    fan_y: float          # baseline the fan rests on / hangs from (bottom edge)
+    fan_w: float          # fan footprint width in px (real scale)
+    fan_h: float          # fan body height in px (real scale: 2x CG)
+    cg_x: float           # centre of gravity x
+    cg_y: float           # centre of gravity y
+    ecc_mm: float         # eccentricity in mm (for the dimension label)
 
 
 def support_preview_html(inp: FanSupportInput, res: FanSupportResult) -> str:
@@ -69,9 +73,6 @@ def support_preview_html(inp: FanSupportInput, res: FanSupportResult) -> str:
 
     eta = _utilisation(res)
     fan_mass = sum(u.operating_weight_kg for u in inp.fan_units) if inp.fan_units else 0.0
-    footprint_mm = (
-        max(u.footprint_width_mm for u in inp.fan_units) if inp.fan_units else 600.0
-    )
 
     scene = _build_scene(inp)
 
@@ -164,16 +165,21 @@ def _build_scene(inp: FanSupportInput) -> _Scene:
     span = max(inp.span_mm, 1.0)
     height = max(inp.installation_height_mm, 1.0)
 
-    # The fan is an equipment symbol with a modest size — it is NOT drawn to
-    # footprint scale. We only reserve vertical room for it so it never overflows
-    # the top margin; its width is adapted below to never exceed the span.
-    fan_h = 60.0
-    fan_clearance = fan_h + 34.0   # body + load arrow above the frame
+    # Real fan geometry. The box is drawn to scale: width = footprint, height =
+    # twice the CG height (so the CG sits at mid-height). Fall back to readable
+    # minimums when the user leaves CG / footprint at zero.
+    unit = inp.fan_units[0] if inp.fan_units else None
+    footprint_mm = max((u.footprint_width_mm for u in inp.fan_units), default=600.0)
+    cg_mm = unit.centre_of_gravity_height_mm if unit else 0.0
+    fan_h_mm = max(2.0 * cg_mm, 250.0)        # box height in mm (CG at mid-height)
+    ecc_mm = inp.eccentricity_mm
 
-    # The structure must fit the draw band horizontally (span) and in the
-    # vertical room that is left after reserving the fan clearance.
-    avail_h = max(_DRAW_H - fan_clearance, 40.0)
-    scale = min(_DRAW_W / span, avail_h / height)
+    # One shared scale for the whole drawing. It must fit the span horizontally
+    # and (structure height + fan height) vertically. The fan is drawn at this
+    # same scale — if its footprint is wider than the span it is allowed to
+    # overflow the supports (faithful to reality).
+    total_h_mm = height + fan_h_mm
+    scale = min(_DRAW_W / span, _DRAW_H / total_h_mm)
     scale = max(scale, 1e-3)
 
     base_y = _MARGIN_T + _DRAW_H
@@ -182,22 +188,25 @@ def _build_scene(inp: FanSupportInput) -> _Scene:
     span_px = span * scale
     left_x = _MARGIN_L + (_DRAW_W - span_px) / 2.0
     right_x = left_x + span_px
+    axis_x = (left_x + right_x) / 2.0
 
-    # Keep the fan inside the structure: cap its width to the span (small inset)
-    # but keep it readable. For small spans it shrinks; for large ones it stays
-    # modest rather than growing without bound.
-    fan_w = max(min(span_px * 0.82, 168.0), 84.0)
+    fan_w = footprint_mm * scale
+    fan_h = fan_h_mm * scale
+    fan_cx = axis_x + ecc_mm * scale          # eccentric offset from the axis
 
-    fan_cx = (left_x + right_x) / 2.0
     if inp.support_type == SupportType.HANGER:
-        # Suspended: the fan hangs near the base, just above the cross member.
+        # Suspended: the fan hangs from the bottom cross member.
         fan_y = base_y - 14.0
     else:
-        fan_y = top_y  # fan rests on top of the frame
+        fan_y = top_y                          # fan rests on top of the frame
+
+    cg_x = fan_cx
+    cg_y = fan_y - fan_h / 2.0                  # CG at mid-height of the box
 
     return _Scene(
         scale=scale, base_y=base_y, top_y=top_y, left_x=left_x, right_x=right_x,
-        fan_cx=fan_cx, fan_y=fan_y, fan_w=fan_w, fan_h=fan_h,
+        axis_x=axis_x, fan_cx=fan_cx, fan_y=fan_y, fan_w=fan_w, fan_h=fan_h,
+        cg_x=cg_x, cg_y=cg_y, ecc_mm=ecc_mm,
     )
 
 
@@ -280,42 +289,81 @@ def _extras(support_type: SupportType, s: _Scene) -> str:
 # ── Equipment ───────────────────────────────────────────────────────────────────
 
 def _fan(s: _Scene, fan_mass: float) -> str:
+    """Fan box drawn to real scale, with a centre-of-gravity marker.
+
+    Text is offset from the vertical CG/load line and the CG marker so nothing
+    overlaps: the name sits in the upper third, the mass in the lower third.
+    """
     bx = s.fan_cx - s.fan_w / 2.0
     by = s.fan_y - s.fan_h
     label = "VENTILADOR"
     mass = f"{fan_mass:.0f} kg" if fan_mass else ""
-    # Mounting flange: a thin strip at the base, same colour family as the body
-    # (subtle), so the fan reads as "equipment on a flange" without a jarring
-    # dark slab. A small intake circle hints at the impeller.
-    flange_h = 7.0
-    flange_y = s.fan_y - flange_h
+
+    if s.fan_h >= 60 and s.fan_w >= 120:
+        # Roomy box: name in the upper third, mass in the lower third — both
+        # clear of the CG marker that sits at mid-height.
+        texts = (
+            f'<text x="{s.fan_cx:.0f}" y="{by + s.fan_h * 0.26:.0f}" '
+            f'text-anchor="middle" font-size="13" font-weight="700" '
+            f'fill="{_INK}">{label}</text>'
+            f'<text x="{s.fan_cx:.0f}" y="{by + s.fan_h * 0.82:.0f}" '
+            f'text-anchor="middle" font-size="11" fill="{_DIM}">{mass}</text>'
+        )
+    else:
+        # Tight box: put a single caption above the box.
+        txt = label + (f" — {mass}" if mass else "")
+        texts = (
+            f'<text x="{s.fan_cx:.0f}" y="{by - 10:.0f}" text-anchor="middle" '
+            f'font-size="12" font-weight="700" fill="{_INK}">{txt}</text>'
+        )
+
     return f"""
       <g filter="url(#softShadow)">
-        <rect x="{bx:.0f}" y="{by:.0f}" width="{s.fan_w:.0f}" height="{s.fan_h:.0f}"
-              rx="10" fill="url(#fanBody)" stroke="#64748b" stroke-width="1.5"/>
-        <rect x="{bx + 6:.0f}" y="{flange_y:.0f}" width="{s.fan_w - 12:.0f}"
-              height="{flange_h:.0f}" rx="3" fill="#cbd5e1" stroke="#64748b"
-              stroke-width="1"/>
-        <circle cx="{s.fan_cx:.0f}" cy="{by + s.fan_h * 0.34:.0f}" r="9"
-                fill="none" stroke="#94a3b8" stroke-width="2"/>
-        <text x="{s.fan_cx:.0f}" y="{by + s.fan_h * 0.62:.0f}" text-anchor="middle"
-              font-size="14" font-weight="700" fill="{_INK}">{label}</text>
-        <text x="{s.fan_cx:.0f}" y="{by + s.fan_h * 0.84:.0f}" text-anchor="middle"
-              font-size="11" fill="{_DIM}">{mass}</text>
+        <rect x="{bx:.1f}" y="{by:.1f}" width="{s.fan_w:.1f}" height="{s.fan_h:.1f}"
+              rx="8" fill="url(#fanBody)" stroke="#64748b" stroke-width="1.5"/>
+        {texts}
       </g>
+      {_cg_marker(s.cg_x, s.cg_y)}
     """
 
 
-def _load_arrow(s: _Scene) -> str:
-    """Downward design-load arrow just off the fan's right edge (clears cap)."""
-    ax = s.fan_cx + s.fan_w * 0.5 + 14   # outside the body, to the right
-    body_top = s.fan_y - s.fan_h
-    y0 = body_top - 6
-    y1 = body_top + s.fan_h * 0.45
+def _cg_marker(cx: float, cy: float) -> str:
+    """Standard centre-of-gravity symbol: quartered circle (two filled quadrants)."""
+    r = 8.0
     return (
-        f'<line x1="{ax:.0f}" y1="{y0:.0f}" x2="{ax:.0f}" y2="{y1:.0f}" '
+        f'<g>'
+        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r}" fill="white" '
+        f'stroke="#0f172a" stroke-width="1.5"/>'
+        f'<path d="M{cx:.1f} {cy:.1f} L{cx:.1f} {cy - r:.1f} '
+        f'A{r} {r} 0 0 1 {cx + r:.1f} {cy:.1f} Z" fill="#0f172a"/>'
+        f'<path d="M{cx:.1f} {cy:.1f} L{cx:.1f} {cy + r:.1f} '
+        f'A{r} {r} 0 0 1 {cx - r:.1f} {cy:.1f} Z" fill="#0f172a"/>'
+        f'<text x="{cx + r + 4:.1f}" y="{cy - r - 2:.1f}" font-size="10" '
+        f'font-weight="700" fill="#0f172a">CG</text>'
+        f'</g>'
+    )
+
+
+def _load_arrow(s: _Scene) -> str:
+    """Design-load arrow acting at the CG line.
+
+    For a roomy box the solid arrow descends from above and stops at the box
+    top, with a dashed continuation to the CG marker. For a tight box (whose
+    caption sits above it) the solid arrow would clash with the caption, so we
+    push the arrow higher to clear it.
+    """
+    ax = s.cg_x
+    box_top = s.fan_y - s.fan_h
+    tight = not (s.fan_h >= 60 and s.fan_w >= 120)
+    head_gap = 30 if tight else 2          # extra room above a small box's caption
+    y0 = box_top - head_gap - 44
+    y1 = box_top - head_gap                # arrow head stops above caption / box
+    return (
+        f'<line x1="{ax:.1f}" y1="{y0:.1f}" x2="{ax:.1f}" y2="{y1:.1f}" '
         f'stroke="#dc2626" stroke-width="3" marker-end="url(#loadArrow)"/>'
-        f'<text x="{ax + 7:.0f}" y="{y0 + 14:.0f}" font-size="12" '
+        f'<line x1="{ax:.1f}" y1="{box_top:.1f}" x2="{ax:.1f}" y2="{s.cg_y - 9:.1f}" '
+        f'stroke="#dc2626" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.7"/>'
+        f'<text x="{ax + 8:.1f}" y="{y0 + 13:.1f}" font-size="12" '
         f'font-weight="700" fill="#dc2626">F_Ed</text>'
     )
 
@@ -348,6 +396,9 @@ def _anchors(substrate: AnchorageSubstrate, support_type: SupportType, s: _Scene
             f'<circle cx="{fx + 11:.0f}" cy="{bolt_cy:.0f}" r="4" fill="#1e293b"/>'
         )
 
+    # Place the label near the left support (not centred) so it never clashes
+    # with the central fan box / CG / eccentricity annotations.
+    label_x = _MARGIN_L - 24
     return f"""
       <g>{''.join(nodes)}</g>
       <line x1="{_MARGIN_L - 30:.0f}" y1="{fix_y:.0f}"
@@ -356,7 +407,7 @@ def _anchors(substrate: AnchorageSubstrate, support_type: SupportType, s: _Scene
       <line x1="{_MARGIN_L - 30:.0f}" y1="{hatch_y:.0f}"
             x2="{_W - _MARGIN_R + 30:.0f}" y2="{hatch_y:.0f}"
             stroke="#94a3b8" stroke-width="1" stroke-dasharray="6 5"/>
-      <text x="{s.fan_cx:.0f}" y="{label_y:.0f}" text-anchor="middle"
+      <text x="{label_x:.0f}" y="{label_y:.0f}" text-anchor="start"
             font-size="12" fill="{_DIM}">{label}</text>
     """
 
@@ -373,6 +424,19 @@ def _dimensions(inp: FanSupportInput, s: _Scene) -> str:
     # Height h — vertical dimension on the right.
     dim_x = _W - _MARGIN_R + 34
     parts.append(_vdim(dim_x, s.top_y, s.base_y, f"h = {inp.installation_height_mm:.0f} mm"))
+
+    # Support axis (reference) — dashed vertical line at the span centre.
+    parts.append(
+        f'<line x1="{s.axis_x:.1f}" y1="{s.top_y - 4:.1f}" '
+        f'x2="{s.axis_x:.1f}" y2="{s.base_y:.1f}" stroke="#94a3b8" '
+        f'stroke-width="1" stroke-dasharray="4 4"/>'
+    )
+
+    # Eccentricity e — only when the CG is offset from the axis. Placed well
+    # above the box top so it never clashes with the fixing-line label.
+    if abs(s.ecc_mm) >= 0.5:
+        ey = s.fan_y - s.fan_h - 34
+        parts.append(_hdim(s.axis_x, s.cg_x, ey, f"e = {s.ecc_mm:.0f} mm"))
 
     return "".join(parts)
 
