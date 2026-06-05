@@ -164,12 +164,11 @@ def _build_scene(inp: FanSupportInput) -> _Scene:
     span = max(inp.span_mm, 1.0)
     height = max(inp.installation_height_mm, 1.0)
 
-    # The fan is an equipment symbol with a fixed, modest size — it is NOT drawn
-    # to footprint scale (a 600 mm fan must not dwarf a 1200 mm structure). We
-    # only reserve vertical room for it so it never overflows the top margin.
-    fan_w = 150.0
-    fan_h = 64.0
-    fan_clearance = fan_h + 34.0   # body + cap + load arrow above the frame
+    # The fan is an equipment symbol with a modest size — it is NOT drawn to
+    # footprint scale. We only reserve vertical room for it so it never overflows
+    # the top margin; its width is adapted below to never exceed the span.
+    fan_h = 60.0
+    fan_clearance = fan_h + 34.0   # body + load arrow above the frame
 
     # The structure must fit the draw band horizontally (span) and in the
     # vertical room that is left after reserving the fan clearance.
@@ -183,6 +182,11 @@ def _build_scene(inp: FanSupportInput) -> _Scene:
     span_px = span * scale
     left_x = _MARGIN_L + (_DRAW_W - span_px) / 2.0
     right_x = left_x + span_px
+
+    # Keep the fan inside the structure: cap its width to the span (small inset)
+    # but keep it readable. For small spans it shrinks; for large ones it stays
+    # modest rather than growing without bound.
+    fan_w = max(min(span_px * 0.82, 168.0), 84.0)
 
     fan_cx = (left_x + right_x) / 2.0
     if inp.support_type == SupportType.HANGER:
@@ -278,20 +282,26 @@ def _extras(support_type: SupportType, s: _Scene) -> str:
 def _fan(s: _Scene, fan_mass: float) -> str:
     bx = s.fan_cx - s.fan_w / 2.0
     by = s.fan_y - s.fan_h
-    cap_w = s.fan_w * 0.74
-    cap_x = s.fan_cx - cap_w / 2.0
     label = "VENTILADOR"
     mass = f"{fan_mass:.0f} kg" if fan_mass else ""
+    # Mounting flange: a thin strip at the base, same colour family as the body
+    # (subtle), so the fan reads as "equipment on a flange" without a jarring
+    # dark slab. A small intake circle hints at the impeller.
+    flange_h = 7.0
+    flange_y = s.fan_y - flange_h
     return f"""
       <g filter="url(#softShadow)">
         <rect x="{bx:.0f}" y="{by:.0f}" width="{s.fan_w:.0f}" height="{s.fan_h:.0f}"
-              rx="9" fill="url(#fanBody)" stroke="#334155" stroke-width="2"/>
-        <rect x="{cap_x:.0f}" y="{by - 18:.0f}" width="{cap_w:.0f}" height="22"
-              rx="6" fill="#94a3b8" stroke="#334155" stroke-width="2"/>
-        <text x="{s.fan_cx:.0f}" y="{by + s.fan_h * 0.5 - 2:.0f}" text-anchor="middle"
-              font-size="15" font-weight="700" fill="{_INK}">{label}</text>
-        <text x="{s.fan_cx:.0f}" y="{by + s.fan_h * 0.5 + 18:.0f}" text-anchor="middle"
-              font-size="12" fill="{_DIM}">{mass}</text>
+              rx="10" fill="url(#fanBody)" stroke="#64748b" stroke-width="1.5"/>
+        <rect x="{bx + 6:.0f}" y="{flange_y:.0f}" width="{s.fan_w - 12:.0f}"
+              height="{flange_h:.0f}" rx="3" fill="#cbd5e1" stroke="#64748b"
+              stroke-width="1"/>
+        <circle cx="{s.fan_cx:.0f}" cy="{by + s.fan_h * 0.34:.0f}" r="9"
+                fill="none" stroke="#94a3b8" stroke-width="2"/>
+        <text x="{s.fan_cx:.0f}" y="{by + s.fan_h * 0.62:.0f}" text-anchor="middle"
+              font-size="14" font-weight="700" fill="{_INK}">{label}</text>
+        <text x="{s.fan_cx:.0f}" y="{by + s.fan_h * 0.84:.0f}" text-anchor="middle"
+              font-size="11" fill="{_DIM}">{mass}</text>
       </g>
     """
 
