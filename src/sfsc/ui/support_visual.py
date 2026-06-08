@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html import escape
 
-from sfsc.enums import AnchorageSubstrate, CantileverSubtype, CheckerStatus, SupportType
+from sfsc.enums import AnchorageSubstrate, AntiVibrationType, CantileverSubtype, CheckerStatus, SupportType
 from sfsc.models import FanSupportInput, FanSupportResult
 
 # ── Canvas ───────────────────────────────────────────────────────────────────────
@@ -47,6 +47,8 @@ _STEEL = "#1d4ed8"
 _INK = "#0f172a"
 _DIM = "#475569"
 _GRID = "#e8eef5"
+_BASE = "#1e40af"
+_PLATE = "#f59e0b"
 
 
 # ── Public entry point ────────────────────────────────────────────────────────────
@@ -289,6 +291,7 @@ def _draw_elevation(inp: FanSupportInput) -> str:
     else:
         parts.append(_elev_engaste(inp, s, concrete))
     parts.append(_fan_box(s.fan_cx, s.fan_y, s.fan_w, s.fan_h, s.cg_x, s.cg_y, mass))
+    parts.append(_elev_optional_mounts(inp, s))
     parts.append(_load_arrow(s))
     parts.append(_elev_dims(inp, s))
     return "".join(parts)
@@ -329,12 +332,10 @@ def _elev_engaste(inp: FanSupportInput, s: _Elev, concrete: bool) -> str:
     box's bottom edge; the fan box is drawn afterwards by the caller and rests on
     the arm.
     """
-    g = ('<g stroke="url(#steel)" stroke-width="10" stroke-linecap="round" '
-         'stroke-linejoin="round" fill="none" filter="url(#softShadow)">')
     arm_y = s.top_y
     fan_left = s.fan_cx - s.fan_w / 2
     fan_right = s.fan_cx + s.fan_w / 2
-    beams, braces, arms = [], [], []
+    beams, braces, bases = [], [], []
 
     def beam(cx: float) -> str:
         bw, bh = 24.0, (s.base_y - s.top_y) + 44
@@ -351,7 +352,7 @@ def _elev_engaste(inp: FanSupportInput, s: _Elev, concrete: bool) -> str:
 
     if _two_sided(inp):
         beams += [beam(s.left_x), beam(s.right_x)]
-        arms.append(f'<path d="M{s.left_x:.0f} {arm_y:.0f} L{s.right_x:.0f} {arm_y:.0f}"/>')
+        bases.append(_elev_base_rect(inp, s.left_x, s.right_x, arm_y))
         if _braced(inp):
             braces.append(_knee(s.left_x, arm_y, fan_left, s.base_y))
             braces.append(_knee(s.right_x, arm_y, fan_right, s.base_y))
@@ -359,13 +360,61 @@ def _elev_engaste(inp: FanSupportInput, s: _Elev, concrete: bool) -> str:
         beams.append(_engaste_bolts(s.right_x, arm_y, concrete))
     else:
         beams.append(beam(s.left_x))
-        # Arm runs from the beam face to the fan centre (carrying the fan).
-        arms.append(f'<path d="M{s.left_x:.0f} {arm_y:.0f} L{s.fan_cx:.0f} {arm_y:.0f}"/>')
+        # Base reta runs from the receiver face to the fan footprint.
+        bases.append(_elev_base_rect(inp, s.left_x, max(s.fan_cx, fan_right), arm_y))
         if _braced(inp):
             braces.append(_knee(s.left_x, arm_y, fan_left, s.base_y))
         beams.append(_engaste_bolts(s.left_x, arm_y, concrete))
 
-    return "".join(beams) + "".join(braces) + g + "".join(arms) + "</g>"
+    return "".join(beams) + "".join(braces) + "".join(bases)
+
+
+def _base_fixing_label(inp: FanSupportInput) -> str:
+    if inp.anchorage_substrate == AnchorageSubstrate.STEEL_STRUCTURE:
+        return "base reta aparafusada"
+    return "base reta engastada"
+
+
+def _elev_base_rect(inp: FanSupportInput, x0: float, x1: float, y: float) -> str:
+    if x0 > x1:
+        x0, x1 = x1, x0
+    h = 14.0
+    return (
+        f'<g filter="url(#softShadow)">'
+        f'<rect x="{x0:.0f}" y="{y - h / 2:.0f}" width="{max(10.0, x1 - x0):.0f}" '
+        f'height="{h:.0f}" rx="2" fill="{_BASE}" stroke="#1e293b" stroke-width="1"/>'
+        f'<text x="{(x0 + x1) / 2:.0f}" y="{y - 12:.0f}" text-anchor="middle" '
+        f'font-size="10" font-weight="700" fill="{_INK}">{escape(_base_fixing_label(inp))}</text>'
+        f'</g>'
+    )
+
+
+def _elev_optional_mounts(inp: FanSupportInput, s: _Elev) -> str:
+    parts: list[str] = []
+    fan_left = s.fan_cx - s.fan_w / 2
+    fan_right = s.fan_cx + s.fan_w / 2
+    if inp.include_base_plate:
+        plate_h = 10.0
+        parts.append(
+            f'<rect x="{fan_left - 10:.0f}" y="{s.fan_y - plate_h:.0f}" '
+            f'width="{s.fan_w + 20:.0f}" height="{plate_h:.0f}" rx="2" '
+            f'fill="{_PLATE}" stroke="#92400e" stroke-width="1.2"/>'
+            f'<text x="{s.fan_cx:.0f}" y="{s.fan_y - plate_h - 5:.0f}" '
+            f'text-anchor="middle" font-size="10" fill="#92400e">base plate</text>'
+        )
+    if inp.anti_vibration == AntiVibrationType.SPRINGS:
+        spring_y = s.fan_y - (14.0 if inp.include_base_plate else 4.0)
+        for x in (fan_left + s.fan_w * 0.22, fan_right - s.fan_w * 0.22):
+            parts.append(_spring_symbol(x, spring_y))
+    return "".join(parts)
+
+
+def _spring_symbol(cx: float, y: float) -> str:
+    return (
+        f'<path d="M{cx - 10:.0f} {y:.0f} '
+        f'c4 -8 8 8 12 0 c4 -8 8 8 12 0" '
+        f'fill="none" stroke="#0f766e" stroke-width="2"/>'
+    )
 
 
 def _knee(beam_x: float, arm_y: float, tip_x: float, base_y: float) -> str:
@@ -474,8 +523,11 @@ def _draw_plan(inp: FanSupportInput) -> str:
     color = "#64748b" if concrete else "#2563eb"
     hole_label = "chumbadores" if concrete else "parafusos"
 
-    # Scale to fit span (x) and the fan length (y, depth in plan).
-    scale = max(min(_BAND_W / max(span, fan_len_mm * 1.2),
+    # Scale to fit span plus the fan footprint when it is cantilevered.
+    horiz_mm = max(span, fan_len_mm * 1.2)
+    if inp.support_type == SupportType.CANTILEVER_1:
+        horiz_mm = max(span + fan_w_mm * 0.70 + ecc_mm, fan_len_mm * 1.2)
+    scale = max(min(_BAND_W / horiz_mm,
                     _BAND_H / max(fan_len_mm * 1.6, 1.0)), 1e-3)
 
     cx0 = _PANEL_W / 2.0
@@ -515,6 +567,9 @@ def _draw_plan(inp: FanSupportInput) -> str:
         parts.append(plan_beam(left_x))
         beam_note = "viga de apoio (esquerda)"
 
+    if _is_engaste(inp):
+        parts.append(_plan_base_rect(inp, left_x, right_x, fan_cx, fan_cy, fw, fl))
+
     # Fan footprint outline.
     parts.append(
         f'<rect x="{fan_cx - fw / 2:.1f}" y="{fan_cy - fl / 2:.1f}" '
@@ -527,6 +582,7 @@ def _draw_plan(inp: FanSupportInput) -> str:
     # Fixing holes.
     holes = _plan_holes(inp, left_x, right_x, fan_cx, fan_cy, fw, fl, color)
     parts.append(holes)
+    parts.append(_plan_optional_mounts(inp, fan_cx, fan_cy, fw, fl))
 
     # CG marker in plan (offset by eccentricity from the support axis).
     parts.append(_cg_marker(fan_cx, fan_cy))
@@ -556,6 +612,50 @@ def _draw_plan(inp: FanSupportInput) -> str:
         f'<text x="{_PANEL_W / 2:.0f}" y="{_M_T + _BAND_H + 56:.0f}" '
         f'text-anchor="middle" font-size="11" fill="{_DIM}">{beam_note} — {hole_label}</text>'
     )
+    return "".join(parts)
+
+
+def _plan_base_rect(
+    inp: FanSupportInput,
+    left_x: float,
+    right_x: float,
+    fan_cx: float,
+    fan_cy: float,
+    fw: float,
+    fl: float,
+) -> str:
+    h = max(18.0, min(34.0, fl * 0.16))
+    x0 = left_x
+    x1 = right_x if _two_sided(inp) else fan_cx + fw / 2
+    if x0 > x1:
+        x0, x1 = x1, x0
+    label = _base_fixing_label(inp)
+    return (
+        f'<rect x="{x0:.1f}" y="{fan_cy - h / 2:.1f}" '
+        f'width="{max(10.0, x1 - x0):.1f}" height="{h:.1f}" rx="3" '
+        f'fill="#dbeafe" stroke="{_BASE}" stroke-width="2"/>'
+        f'<text x="{(x0 + x1) / 2:.0f}" y="{fan_cy - h / 2 - 8:.0f}" '
+        f'text-anchor="middle" font-size="10" font-weight="700" fill="{_BASE}">'
+        f'{escape(label)}</text>'
+    )
+
+
+def _plan_optional_mounts(inp: FanSupportInput, fan_cx: float, fan_cy: float, fw: float, fl: float) -> str:
+    parts: list[str] = []
+    if inp.include_base_plate:
+        parts.append(
+            f'<rect x="{fan_cx - fw / 2 - 8:.1f}" y="{fan_cy - fl / 2 - 8:.1f}" '
+            f'width="{fw + 16:.1f}" height="{fl + 16:.1f}" rx="4" '
+            f'fill="none" stroke="{_PLATE}" stroke-width="2.2" stroke-dasharray="6 4"/>'
+        )
+    if inp.anti_vibration == AntiVibrationType.SPRINGS:
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                parts.append(
+                    f'<circle cx="{fan_cx + sx * fw * 0.34:.1f}" '
+                    f'cy="{fan_cy + sy * fl * 0.34:.1f}" r="5" '
+                    f'fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/>'
+                )
     return "".join(parts)
 
 

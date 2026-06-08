@@ -63,8 +63,8 @@ def calculate_loads(
         V_z_kN=V_uls,
         N_kN=0.0,
         load_factors_used={"gamma_G": gG, "gamma_Q": gQ,
-                           "G_kN": round(G_total_kN, 3),
-                           "Q_kN": round(Q_dynamic_kN, 3)},
+                           "G_kN": G_total_kN,
+                           "Q_kN": Q_dynamic_kN},
         description=f"{gG}×G + {gQ}×Q  =  {V_uls:.2f} kN",
     )
 
@@ -78,8 +78,8 @@ def calculate_loads(
         V_y_kN=H_seismic,
         N_kN=0.0,
         load_factors_used={"gamma_G": 1.0, "ag_g": seismic_factor_g,
-                           "G_kN": round(G_total_kN, 3),
-                           "E_d_kN": round(E_d_horizontal_kN, 3)},
+                           "G_kN": G_total_kN,
+                           "E_d_kN": E_d_horizontal_kN},
         description=f"1.0×G + E_d  =  {V_seismic:.2f} kN vertical + {H_seismic:.2f} kN horizontal",
     )
 
@@ -88,8 +88,8 @@ def calculate_loads(
         name="SLS_characteristic",
         V_z_kN=G_total_kN + Q_dynamic_kN,
         load_factors_used={"gamma_G": 1.0, "gamma_Q": 1.0,
-                           "G_kN": round(G_total_kN, 3),
-                           "Q_kN": round(Q_dynamic_kN, 3)},
+                           "G_kN": G_total_kN,
+                           "Q_kN": Q_dynamic_kN},
         description=f"1.0×G + 1.0×Q  =  {G_total_kN + Q_dynamic_kN:.2f} kN",
     )
 

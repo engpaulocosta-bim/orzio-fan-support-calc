@@ -40,6 +40,7 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
             SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
             HRFlowable, KeepTogether,
         )
+        from reportlab.graphics.shapes import Drawing, Line, Rect, String, Circle, Polygon
         from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
     except ImportError:
         raise ImportError("reportlab não instalado. Execute: pip install reportlab")
@@ -97,6 +98,52 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
             ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
         ]))
         return t
+
+    def technical_sketch():
+        if not inp:
+            return None
+        d = Drawing(W, 68*mm)
+        steel = colors.HexColor("#1d4ed8")
+        base = colors.HexColor("#1e40af")
+        dim = colors.HexColor("#475569")
+        load = colors.HexColor("#dc2626")
+        plate = colors.HexColor("#f59e0b")
+        x0 = 18*mm
+        y0 = 12*mm
+        x1 = W - 48*mm
+        y1 = 52*mm
+        receiver_h = y1 - y0 + 8*mm
+        d.add(Rect(x0, y0 - 4*mm, 8*mm, receiver_h, fillColor=colors.HexColor("#cbd5e1"), strokeColor=dim))
+        d.add(String(x0 - 2*mm, y1 + 6*mm, "perfil receptor", fontSize=7, fillColor=dim))
+        d.add(Rect(x0 + 4*mm, y1 - 2*mm, x1 - x0, 4*mm, fillColor=base, strokeColor=base))
+        d.add(String((x0 + x1) / 2, y1 + 4*mm, "base reta engastada/aparafusada", fontSize=7, textAnchor="middle", fillColor=base))
+        if inp.cantilever_subtype and inp.cantilever_subtype.value == "bracketed":
+            d.add(Line(x0 + 4*mm, y0 + 10*mm, x1 - 26*mm, y1, strokeColor=steel, strokeWidth=3))
+            d.add(String(x0 + 28*mm, y0 + 20*mm, "mao-francesa", fontSize=7, fillColor=steel))
+        if inp.include_base_plate:
+            d.add(Rect(x1 - 39*mm, y1 + 1*mm, 30*mm, 3*mm, fillColor=plate, strokeColor=plate))
+            d.add(String(x1 - 24*mm, y1 + 7*mm, "base plate", fontSize=7, textAnchor="middle", fillColor=colors.HexColor("#92400e")))
+        fan_w = 28*mm
+        fan_h = 18*mm
+        fan_x = x1 - 38*mm
+        fan_y = y1 + 3*mm
+        d.add(Rect(fan_x, fan_y, fan_w, fan_h, fillColor=colors.HexColor("#e2e8f0"), strokeColor=dim))
+        d.add(String(fan_x + fan_w/2, fan_y + fan_h/2, "VENTILADOR", fontSize=7, textAnchor="middle", fillColor=colors.HexColor("#0f172a")))
+        cg_x = fan_x + fan_w/2
+        cg_y = fan_y + fan_h/2
+        d.add(Circle(cg_x, cg_y, 2.2*mm, fillColor=colors.white, strokeColor=colors.HexColor("#0f172a")))
+        d.add(String(cg_x + 4*mm, cg_y + 2*mm, "CG", fontSize=6, fillColor=colors.HexColor("#0f172a")))
+        d.add(Line(cg_x, fan_y + fan_h + 15*mm, cg_x, fan_y + fan_h + 2*mm, strokeColor=load, strokeWidth=1.5))
+        d.add(Polygon([cg_x - 2*mm, fan_y + fan_h + 4*mm, cg_x + 2*mm, fan_y + fan_h + 4*mm, cg_x, fan_y + fan_h], fillColor=load, strokeColor=load))
+        d.add(String(cg_x + 3*mm, fan_y + fan_h + 10*mm, "F_Ed", fontSize=7, fillColor=load))
+        if inp.anti_vibration.value == "springs":
+            for sx in (fan_x + 7*mm, fan_x + fan_w - 7*mm):
+                d.add(Circle(sx, y1 + 2*mm, 2*mm, fillColor=colors.HexColor("#ccfbf1"), strokeColor=colors.HexColor("#0f766e")))
+        d.add(Line(x0 + 4*mm, y0 - 2*mm, x1 - 10*mm, y0 - 2*mm, strokeColor=dim, strokeWidth=0.8))
+        d.add(String((x0 + x1) / 2, y0 - 7*mm, f"L = {inp.span_mm:.0f} mm", fontSize=7, textAnchor="middle", fillColor=dim))
+        d.add(Line(x1 + 12*mm, y0, x1 + 12*mm, y1, strokeColor=dim, strokeWidth=0.8))
+        d.add(String(x1 + 15*mm, (y0 + y1) / 2, f"H = {inp.installation_height_mm:.0f} mm", fontSize=7, fillColor=dim))
+        return d
 
     story = []
 
@@ -226,6 +273,11 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         if inp.cantilever_subtype:
             rows_geo.insert(1, ("Subtipo consola", inp.cantilever_subtype.value))
         story.append(kv_table(rows_geo))
+        sketch = technical_sketch()
+        if sketch:
+            story.append(Spacer(1, 2*mm))
+            story.append(Paragraph("Croqui técnico paramétrico", S_h2))
+            story.append(sketch)
     story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -265,6 +317,8 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         sec = res.recommended_section
         story.append(kv_table([
             ("Perfil seleccionado", f"<b>{sec.designation}</b>  ({sec.family.value})"),
+            ("Categoria do catálogo", sec.catalog_status),
+            ("Motivo da escolha", "Menor perfil recomendado/aceitável que passa no catálogo filtrado por peso"),
             ("Aço", inp.steel_grade.value if inp else "—"),
             ("h × b × tw × tf", f"{sec.h_mm} × {sec.b_mm} × {sec.tw_mm} × {sec.tf_mm} mm"),
             ("A", f"{sec.A_cm2:.1f} cm²"),

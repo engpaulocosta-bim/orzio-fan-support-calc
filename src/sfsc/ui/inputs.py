@@ -123,8 +123,12 @@ def render_sidebar() -> tuple[bool, Callable[[], FanSupportInput]]:
         steel_grade = SteelGrade(steel_grade_val)
 
         fam_options = [e.value for e in SectionFamily if e not in (SectionFamily.CUSTOM,)]
-        preferred_raw = st.multiselect("Famílias preferidas", fam_options, default=["HEB", "IPE"])
-        preferred_families = [SectionFamily(f) for f in preferred_raw] if preferred_raw else [SectionFamily.HEB]
+        preferred_raw = st.multiselect(
+            "Famílias preferidas",
+            fam_options,
+            default=["RHS", "IPE", "UPN", "HEA", "HEB"],
+        )
+        preferred_families = [SectionFamily(f) for f in preferred_raw] if preferred_raw else [SectionFamily.RHS]
 
         # ── Geometria ──
         st.subheader("6. Geometria")

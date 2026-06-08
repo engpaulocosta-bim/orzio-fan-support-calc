@@ -46,6 +46,18 @@ def test_auto_select_finds_section():
     assert sv.utilization_ratio <= 0.90
 
 
+def test_auto_select_prefers_recommended_light_profile_over_first_family():
+    combos = [LoadCombination(name="ULS_fundamental", V_z_kN=8.0, M_y_kNm=2.0)]
+    sec, sv = auto_select_section(
+        combos, StructuralCode.EC3_EN1993, SteelGrade.S355,
+        [SectionFamily.HEB, SectionFamily.IPE, SectionFamily.UPN], 1200.0, 600.0,
+    )
+
+    assert sec.family in (SectionFamily.IPE, SectionFamily.UPN)
+    assert sec.catalog_status == "recommended"
+    assert sv.utilization_ratio <= 0.90
+
+
 def test_checks_dict_populated(heb200, light_combo):
     result = verify_section(heb200, light_combo, StructuralCode.EC3_EN1993,
                             SteelGrade.S355, 1200.0, 600.0)

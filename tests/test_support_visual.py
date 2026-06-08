@@ -1,4 +1,11 @@
-from sfsc.enums import AnchorageSubstrate, CantileverSubtype, CheckerStatus, SupportType
+from sfsc.enums import (
+    AnchorageSubstrate,
+    AntiVibrationType,
+    CantileverSubtype,
+    CheckerStatus,
+    FanConnectionType,
+    SupportType,
+)
 from sfsc.engines.selector import run_full_calculation
 from sfsc.ui.support_visual import support_preview_html
 
@@ -91,3 +98,36 @@ def test_support_preview_engaste_shows_beam_and_engaste_marker(base_inp):
 
     assert "ENGASTE" in html
     assert "viga" in html.lower()        # pre-existing support beam is drawn
+    assert "base reta" in html.lower()
+
+
+def test_support_preview_optional_mounts_follow_inputs(base_inp):
+    inp = base_inp.model_copy(update={
+        "support_type": SupportType.CANTILEVER_1,
+        "cantilever_subtype": CantileverSubtype.BRACKETED,
+        "include_base_plate": True,
+        "fan_connection_type": FanConnectionType.DIRECT_FLANGE,
+        "anti_vibration": AntiVibrationType.SPRINGS,
+        "anti_vibration_static_deflection_mm": 25.0,
+    })
+    ctx = run_full_calculation(inp)
+
+    html = support_preview_html(inp, ctx.fan_support_result)
+
+    assert "base plate" in html
+    assert "#0f766e" in html
+    assert "base reta" in html.lower()
+
+
+def test_support_preview_omits_optional_mounts_when_not_selected(base_inp):
+    inp = base_inp.model_copy(update={
+        "support_type": SupportType.CANTILEVER_1,
+        "cantilever_subtype": CantileverSubtype.BRACKETED,
+        "include_base_plate": False,
+        "anti_vibration": AntiVibrationType.NONE,
+    })
+    ctx = run_full_calculation(inp)
+
+    html = support_preview_html(inp, ctx.fan_support_result)
+
+    assert "base plate" not in html

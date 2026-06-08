@@ -78,9 +78,9 @@ def render_results(ctx, fallback_support_tag: str, fallback_steel_grade) -> None
 
     with tabs[0]:
         _render_model_tab(ctx, res)
-    with tabs[2]:
-        _render_section_tab(ctx, res, base_res, fallback_steel_grade)
     with tabs[1]:
+        _render_section_tab(ctx, res, base_res, fallback_steel_grade)
+    with tabs[2]:
         _render_base_plate_tab(res)
     with tabs[3]:
         _render_anchor_tab(res)
@@ -117,6 +117,7 @@ def _render_section_tab(ctx, res, base_res, fallback_steel_grade) -> None:
             option_rows.append({
                 "Perfil": opt.section.designation,
                 "Família": opt.section.family.value,
+                "Categoria": opt.section.catalog_status,
                 "Peso [kg/m]": round(opt.section.weight_kgm, 1),
                 "η máx.": opt.utilization_ratio,
                 "Governa": opt.governing_check,
@@ -136,9 +137,10 @@ def _render_section_tab(ctx, res, base_res, fallback_steel_grade) -> None:
             ):
                 sec_opt = opt.section
                 st.dataframe({
-                    "Propriedade": ["Família", "h [mm]", "b [mm]", "tw [mm]", "tf [mm]", "A [cm²]", "I_y [cm⁴]", "W_el,y [cm³]", "Peso [kg/m]"],
+                    "Propriedade": ["Família", "Categoria", "h [mm]", "b [mm]", "tw [mm]", "tf [mm]", "A [cm²]", "I_y [cm⁴]", "W_el,y [cm³]", "Peso [kg/m]"],
                     "Valor": [
                         sec_opt.family.value,
+                        sec_opt.catalog_status,
                         f"{sec_opt.h_mm:g}",
                         f"{sec_opt.b_mm:g}",
                         f"{sec_opt.tw_mm:g}",
@@ -160,7 +162,9 @@ def _render_section_tab(ctx, res, base_res, fallback_steel_grade) -> None:
         with c1:
             st.subheader(f"Perfil: **{sec.designation}**")
             _grade = ctx.fan_support_input.steel_grade.value if ctx.fan_support_input else fallback_steel_grade.value
-            st.markdown(f"Família: `{sec.family.value}` | Aço: `{_grade}`")
+            st.markdown(f"Família: `{sec.family.value}` | Categoria: `{sec.catalog_status}` | Aço: `{_grade}`")
+            if sec.catalog_status in ("heavy", "hidden"):
+                st.warning("Perfil aprovado, porém possivelmente sobredimensionado para esta carga.")
             st.dataframe({
                 "Propriedade": ["h [mm]", "b [mm]", "tw [mm]", "tf [mm]", "A [cm²]", "I_y [cm⁴]", "W_el,y [cm³]", "Peso [kg/m]"],
                 "Valor": [

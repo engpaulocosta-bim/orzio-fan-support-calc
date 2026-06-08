@@ -11,7 +11,7 @@ from ..enums import (
 )
 from ..validators import validate_fan_support_input
 from ..catalogs.seismic_catalog import get_seismic_factor, get_seismic_code
-from ..catalogs.steel_section_catalog import get_section
+from ..catalogs.steel_section_catalog import get_section, is_overdimensioned_choice
 from .loads import calculate_loads
 from .section_verifier import verify_section, auto_select_section, find_passing_sections
 from .base_plate import calculate_base_plate
@@ -78,6 +78,19 @@ def context_for_section_choice(ctx: ReportContext, designation: str) -> ReportCo
     selected_ctx = run_full_calculation(verify_inp)
     if selected_ctx.fan_support_result:
         selected_ctx.fan_support_result.section_options = res.section_options
+        passing_sections = [opt.section for opt in res.section_options]
+        if is_overdimensioned_choice(chosen.section, passing_sections):
+            message = (
+                "Perfil aprovado, porem possivelmente sobredimensionado para esta carga. "
+                "Existe perfil mais leve aprovado na lista de candidatos."
+            )
+            selected_ctx.warnings.append(WarningItem(
+                code="W-SEC-HEAVY",
+                severity="WARNING",
+                message=message,
+                module="section_selector",
+            ))
+            selected_ctx.fan_support_result.warnings.append(message)
     selected_ctx.fan_support_input = inp
     return selected_ctx
 
@@ -197,6 +210,16 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         for w in sec_result.warnings:
             warn_items.append(WarningItem(code="W-SEC", severity="WARNING",
                                           message=w, module="section_verifier"))
+        if section and section.catalog_status in ("heavy", "hidden"):
+            warn_items.append(WarningItem(
+                code="W-SEC-HEAVY",
+                severity="WARNING",
+                message=(
+                    "Perfil aprovado, porem possivelmente sobredimensionado para esta carga. "
+                    "Validar se a escolha e intencional."
+                ),
+                module="section_selector",
+            ))
 
     # ── 6. Mesa ───────────────────────────────────────────────────────────────
     bp_result = None

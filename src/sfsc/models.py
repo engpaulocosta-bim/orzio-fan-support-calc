@@ -139,6 +139,10 @@ class SteelSection(BaseModel):
     """Secção metálica do catálogo."""
     family: SectionFamily
     designation: str
+    catalog_status: str = Field(
+        default="recommended",
+        description="Classificação interna para seleção: recommended, acceptable, heavy ou hidden",
+    )
     h_mm: float
     b_mm: float
     tw_mm: float

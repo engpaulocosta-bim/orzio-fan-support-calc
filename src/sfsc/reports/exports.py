@@ -67,6 +67,8 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
             ("Utilização governante [%]", round(assessment.utilization_percent, 1) if assessment and assessment.utilization_percent is not None else "—"),
             ("Conservadorismo informativo [%]", round(assessment.conservatism_percent, 1) if assessment and assessment.conservatism_percent is not None else "—"),
             ("Perfil seleccionado", res.recommended_section.designation if res.recommended_section else "—"),
+            ("Categoria do perfil", res.recommended_section.catalog_status if res.recommended_section else "—"),
+            ("Motivo da escolha", "Menor perfil recomendado/aceitavel que passa no catalogo filtrado por peso"),
             ("Utilização máx. secção", res.section_verification.utilization_ratio if res.section_verification else "—"),
             ("Estado global", res.status.value),
             ("Classificação", res.classification_level.value),
@@ -98,6 +100,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         n3 = 1
         for k, v in [
             ("Designação", sec.designation), ("Família", sec.family.value),
+            ("Categoria", sec.catalog_status),
             ("h [mm]", sec.h_mm), ("b [mm]", sec.b_mm),
             ("tw [mm]", sec.tw_mm), ("tf [mm]", sec.tf_mm),
             ("A [cm²]", sec.A_cm2), ("I_y [cm⁴]", sec.I_y_cm4),
@@ -243,6 +246,7 @@ def generate_csv(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         "design_load_kN": res.design_load_kN if res else "",
         "seismic_factor_g": res.seismic_factor_g if res else "",
         "section": res.recommended_section.designation if (res and res.recommended_section) else "",
+        "section_category": res.recommended_section.catalog_status if (res and res.recommended_section) else "",
         "section_utilization": res.section_verification.utilization_ratio if (res and res.section_verification) else "",
         "base_plate_t_mm": res.base_plate.thickness_mm if (res and res.base_plate) else "",
         "anchorage_substrate": res.anchor.anchorage_substrate.value if (res and res.anchor) else "",
