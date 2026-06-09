@@ -148,6 +148,10 @@ def _defs() -> str:
                    patternUnits="userSpaceOnUse">
             <line x1="0" y1="0" x2="0" y2="8" stroke="#94a3b8" stroke-width="1"/>
           </pattern>
+          <pattern id="tramex" width="9" height="9" patternUnits="userSpaceOnUse">
+            <rect width="9" height="9" fill="#eef2f7"/>
+            <path d="M0 0 H9 M0 0 V9" stroke="#9aa7b8" stroke-width="0.8"/>
+          </pattern>
         </defs>
     """
 
@@ -178,6 +182,10 @@ def _is_engaste(inp: FanSupportInput) -> bool:
     return inp.support_type in (SupportType.CANTILEVER_1, SupportType.CANTILEVER_2)
 
 
+def _is_platform(inp: FanSupportInput) -> bool:
+    return inp.support_type == SupportType.PLATFORM
+
+
 def _two_sided(inp: FanSupportInput) -> bool:
     return inp.support_type == SupportType.CANTILEVER_2
 
@@ -193,6 +201,10 @@ def _support_label(inp: FanSupportInput) -> str:
         return "Engastado (2 lados)"
     if inp.support_type == SupportType.CANTILEVER_1:
         return "Engastado (1 lado)"
+    if inp.support_type == SupportType.PLATFORM:
+        n = max(2, inp.platform_n_beams)
+        brace = "com mão-francesa" if _braced(inp) else "sem mão-francesa"
+        return f"Plataforma · {n} vigas · {brace}"
     return inp.support_type.value.replace("_", " ").title()
 
 
@@ -281,6 +293,8 @@ def _elev_scene(inp: FanSupportInput) -> _Elev:
 
 
 def _draw_elevation(inp: FanSupportInput) -> str:
+    if _is_platform(inp):
+        return _draw_elevation_platform(inp)
     s = _elev_scene(inp)
     _, _len, _bh, mass = _fan_dims_mm(inp)
     concrete = inp.anchorage_substrate == AnchorageSubstrate.CONCRETE
@@ -294,6 +308,94 @@ def _draw_elevation(inp: FanSupportInput) -> str:
     parts.append(_elev_optional_mounts(inp, s))
     parts.append(_load_arrow(s))
     parts.append(_elev_dims(inp, s))
+    return "".join(parts)
+
+
+def _draw_elevation_platform(inp: FanSupportInput) -> str:
+    """Elevation of the grillage platform: horizontal deck fixed to a beam on the
+    left (engaste); optional knee braces at 45°-ish down to lower anchor points.
+    The fan box sits on the deck. Mirrors the real Revit model."""
+    span = max(inp.span_mm, 1.0)
+    height = max(inp.installation_height_mm, 1.0)
+    fan_w_mm, _len, fan_h_mm, mass = _fan_dims_mm(inp)
+    braced = _braced(inp)
+    concrete = inp.anchorage_substrate == AnchorageSubstrate.CONCRETE
+
+    head_px = 48.0
+    avail_h = max(_BAND_H - head_px, 40.0)
+    total_h_mm = height + fan_h_mm
+    horiz_mm = max(span, fan_w_mm) * 1.1
+    scale = max(min(_BAND_W / horiz_mm, avail_h / total_h_mm), 1e-3)
+
+    span_px = span * scale
+    base_y = _M_T + _BAND_H          # lower anchor reference
+    deck_y = base_y - height * scale  # platform top level
+    left_x = _M_L + 16
+    right_x = left_x + span_px
+
+    parts = [_grid()]
+
+    # Receiver beam (left) — the platform is engastada nele.
+    bw = 22.0
+    fill = "url(#concreteHatch)" if concrete else "#94a3b8"
+    tag = "viga betão" if concrete else "viga metálica"
+    parts.append(
+        f'<rect x="{left_x - bw:.0f}" y="{deck_y - 24:.0f}" width="{bw:.0f}" '
+        f'height="{base_y - deck_y + 44:.0f}" rx="2" fill="{fill}" '
+        f'stroke="#64748b" stroke-width="1.5"/>'
+        f'<text x="{left_x - bw / 2:.0f}" y="{deck_y - 30:.0f}" text-anchor="middle" '
+        f'font-size="10" fill="{_DIM}">{tag}</text>'
+        f'<text x="{left_x:.0f}" y="{deck_y - 30:.0f}" font-size="10" '
+        f'font-weight="700" fill="#b45309">ENGASTE</text>'
+    )
+
+    # Knee braces (mãos-francesas) at ~θ from the deck tip down to the beam base.
+    if braced:
+        low_y = base_y
+        parts.append(
+            '<g stroke="url(#steel)" stroke-width="7" stroke-linecap="round" '
+            'fill="none" opacity="0.9">'
+            f'<path d="M{left_x:.0f} {low_y:.0f} L{right_x:.0f} {deck_y:.0f}"/></g>'
+        )
+        # angle annotation
+        import math as _m
+        ang = _m.degrees(_m.atan2(height, span))
+        parts.append(
+            f'<text x="{(left_x + right_x) / 2:.0f} " y="{(deck_y + low_y) / 2 + 4:.0f}" '
+            f'font-size="10" fill="{_STEEL}">mão-francesa  θ={ang:.0f}°</text>'
+        )
+
+    # Deck (platform slab with tramex hatch).
+    deck_h = 12.0
+    parts.append(
+        f'<rect x="{left_x:.0f}" y="{deck_y - deck_h / 2:.0f}" width="{span_px:.0f}" '
+        f'height="{deck_h:.0f}" rx="2" fill="url(#tramex)" stroke="#1e293b" '
+        f'stroke-width="1.2"/>'
+        f'<text x="{(left_x + right_x) / 2:.0f}" y="{deck_y + deck_h + 10:.0f}" '
+        f'text-anchor="middle" font-size="9" fill="{_DIM}">plataforma + tramex</text>'
+    )
+
+    # Fan box on the deck.
+    fan_w = fan_w_mm * scale
+    fan_h = fan_h_mm * scale
+    fan_cx = (left_x + right_x) / 2
+    fan_y = deck_y - deck_h / 2
+    cg_x = fan_cx
+    cg_y = fan_y - fan_h / 2
+    parts.append(_fan_box(fan_cx, fan_y, fan_w, fan_h, cg_x, cg_y, mass))
+
+    # Load arrow + dims.
+    box_top = fan_y - fan_h
+    parts.append(
+        f'<line x1="{cg_x:.1f}" y1="{box_top - 44:.1f}" x2="{cg_x:.1f}" '
+        f'y2="{box_top - 4:.1f}" stroke="#dc2626" stroke-width="3" '
+        f'marker-end="url(#loadArrow)"/>'
+        f'<text x="{cg_x + 8:.1f}" y="{box_top - 30:.1f}" font-size="12" '
+        f'font-weight="700" fill="#dc2626">F_Ed</text>'
+    )
+    parts.append(_hdim(left_x, right_x, base_y + 50, f"L = {inp.span_mm:.0f} mm"))
+    parts.append(_vdim(_PANEL_W - _M_R + 30, deck_y, base_y,
+                       f"h = {inp.installation_height_mm:.0f} mm"))
     return "".join(parts)
 
 
@@ -516,6 +618,8 @@ def _elev_dims(inp: FanSupportInput, s: _Elev) -> str:
 
 def _draw_plan(inp: FanSupportInput) -> str:
     """Top view: support beam(s), fan footprint to scale, fixing holes, CG."""
+    if _is_platform(inp):
+        return _draw_plan_platform(inp)
     span = max(inp.span_mm, 1.0)
     fan_w_mm, fan_len_mm, _bh, _mass = _fan_dims_mm(inp)
     ecc_mm = inp.eccentricity_mm
@@ -612,6 +716,86 @@ def _draw_plan(inp: FanSupportInput) -> str:
         f'<text x="{_PANEL_W / 2:.0f}" y="{_M_T + _BAND_H + 56:.0f}" '
         f'text-anchor="middle" font-size="11" fill="{_DIM}">{beam_note} — {hole_label}</text>'
     )
+    return "".join(parts)
+
+
+def _draw_plan_platform(inp: FanSupportInput) -> str:
+    """Top view of the grillage platform: deck (tramex) + N parallel beams.
+
+    x-axis = span direction (length, engaste on the left); y-axis = platform
+    width. The fan footprint sits centred on the deck; the N beams run along the
+    span and the (optional) knee braces anchor at the far edge.
+    """
+    length_mm = max(inp.platform_length_eff_mm, 1.0)
+    width_mm = max(inp.platform_width_eff_mm, 1.0)
+    n_beams = max(2, inp.platform_n_beams)
+    braced = _braced(inp)
+    fan_w_mm, fan_len_mm, _bh, _mass = _fan_dims_mm(inp)
+
+    scale = max(min(_BAND_W / (length_mm * 1.05),
+                    _BAND_H / (width_mm * 1.05)), 1e-3)
+    pl = length_mm * scale
+    pw = width_mm * scale
+    x0 = _PANEL_W / 2 - pl / 2
+    y0 = _M_T + _BAND_H / 2 - pw / 2
+    x1, y1 = x0 + pl, y0 + pw
+
+    parts = [_grid()]
+
+    # Deck (tramex).
+    parts.append(
+        f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{pl:.1f}" height="{pw:.1f}" '
+        f'rx="3" fill="url(#tramex)" stroke="#64748b" stroke-width="1.5"/>'
+    )
+    parts.append(
+        f'<text x="{(x0 + x1) / 2:.0f}" y="{y0 - 8:.0f}" text-anchor="middle" '
+        f'font-size="10" fill="{_DIM}">tramex {inp.platform_grating_kg_m2:.0f} kg/m²</text>'
+    )
+
+    # N parallel beams along the span (edges always present).
+    ys = [y0 + pw * (i / (n_beams - 1)) for i in range(n_beams)] if n_beams > 1 else [(y0 + y1) / 2]
+    for i, by in enumerate(ys):
+        parts.append(
+            f'<line x1="{x0:.1f}" y1="{by:.1f}" x2="{x1:.1f}" y2="{by:.1f}" '
+            f'stroke="url(#steel)" stroke-width="6" stroke-linecap="round"/>'
+        )
+    parts.append(
+        f'<text x="{x0 + 6:.0f}" y="{ys[0] - 6:.0f}" font-size="9" '
+        f'fill="{_STEEL}">{n_beams} vigas</text>'
+    )
+
+    # Engaste edge (left) + brace anchors (right).
+    parts.append(
+        f'<line x1="{x0:.1f}" y1="{y0 - 6:.1f}" x2="{x0:.1f}" y2="{y1 + 6:.1f}" '
+        f'stroke="#b45309" stroke-width="4"/>'
+        f'<text x="{x0:.0f}" y="{y0 - 18:.0f}" text-anchor="middle" '
+        f'font-size="10" font-weight="700" fill="#b45309">ENGASTE</text>'
+    )
+    if braced:
+        for by in (ys[0], ys[-1]):
+            parts.append(
+                f'<circle cx="{x1:.1f}" cy="{by:.1f}" r="4" fill="none" '
+                f'stroke="{_STEEL}" stroke-width="2"/>'
+            )
+        parts.append(
+            f'<text x="{x1:.0f}" y="{y1 + 18:.0f}" text-anchor="middle" '
+            f'font-size="9" fill="{_STEEL}">apoio mão-francesa</text>'
+        )
+
+    # Fan footprint(s) centred on the deck.
+    fw = fan_w_mm * scale
+    fl = fan_len_mm * scale
+    fcx, fcy = (x0 + x1) / 2, (y0 + y1) / 2
+    parts.append(
+        f'<rect x="{fcx - fl / 2:.1f}" y="{fcy - fw / 2:.1f}" '
+        f'width="{fl:.1f}" height="{fw:.1f}" rx="6" fill="url(#fanBody)" '
+        f'stroke="#64748b" stroke-width="1.5" opacity="0.92"/>'
+        f'<text x="{fcx:.0f}" y="{fcy:.0f}" text-anchor="middle" '
+        f'font-size="11" font-weight="700" fill="{_INK}">VENTILADOR(ES)</text>'
+    )
+
+    parts.append(_hdim(x0, x1, y1 + 40, f"L = {length_mm:.0f} mm"))
+    parts.append(_vdim(x1 + 28, y0, y1, f"b = {width_mm:.0f} mm"))
     return "".join(parts)
 
 

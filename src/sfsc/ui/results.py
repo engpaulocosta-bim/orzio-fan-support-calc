@@ -74,23 +74,30 @@ def render_results(ctx, fallback_support_tag: str, fallback_steel_grade) -> None
     else:
         st.success(assessment_message)
 
-    tabs = st.tabs(["Modelo", "Secção", "Mesa", "Ancoragens", "Ligações", "Combinações", "Avisos", "Citações"])
+    tab_labels = ["Modelo", "Secção"]
+    if res.platform:
+        tab_labels.append("Plataforma")
+    tab_labels += ["Mesa", "Ancoragens", "Ligações", "Combinações", "Avisos", "Citações"]
+    tabs = dict(zip(tab_labels, st.tabs(tab_labels)))
 
-    with tabs[0]:
+    with tabs["Modelo"]:
         _render_model_tab(ctx, res)
-    with tabs[1]:
+    with tabs["Secção"]:
         _render_section_tab(ctx, res, base_res, fallback_steel_grade)
-    with tabs[2]:
+    if "Plataforma" in tabs:
+        with tabs["Plataforma"]:
+            _render_platform_tab(res)
+    with tabs["Mesa"]:
         _render_base_plate_tab(res)
-    with tabs[3]:
+    with tabs["Ancoragens"]:
         _render_anchor_tab(res)
-    with tabs[4]:
+    with tabs["Ligações"]:
         _render_connection_tab(res)
-    with tabs[5]:
+    with tabs["Combinações"]:
         _render_combinations_tab(res)
-    with tabs[6]:
+    with tabs["Avisos"]:
         _render_warnings_tab(ctx)
-    with tabs[7]:
+    with tabs["Citações"]:
         _render_citations_tab(ctx)
 
     _render_exports(ctx, support_tag)
@@ -186,6 +193,54 @@ def _render_section_tab(ctx, res, base_res, fallback_steel_grade) -> None:
                 eta_data = {"Check": list(sv.utilization_by_check.keys()),
                             "η": [round(v, 4) for v in sv.utilization_by_check.values()]}
                 st.dataframe(eta_data, hide_index=True)
+
+
+def _render_platform_tab(res) -> None:
+    p = res.platform
+    if not p:
+        return
+    st.subheader(f"Plataforma de grelha — {p.n_beams} vigas paralelas")
+    st.caption(
+        ("Com mão-francesa (diagonais escoram a ponta)" if p.braced
+         else "Sem mão-francesa (mesa biapoiada)")
+        + f" • {p.length_mm:.0f} × {p.width_mm:.0f} mm • área {p.area_m2:.2f} m²"
+    )
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Carga por viga", f"{p.load_per_beam_kN:.2f} kN")
+    c2.metric("Momento por viga", f"{p.moment_per_beam_kNm:.2f} kNm")
+    c3.metric("Axial por viga", f"{p.axial_per_beam_kN:.2f} kN")
+
+    st.subheader("Peso próprio do suporte")
+    st.dataframe({
+        "Parcela": ["Tramex / grating", "Estrutura de aço (vigas + diagonais)", "Total suporte"],
+        "Peso [kg]": [
+            f"{p.grating_weight_kg:.1f}  ({p.grating_kg_m2:.0f} kg/m²)",
+            f"{p.steel_weight_kg:.1f}",
+            f"{p.grating_weight_kg + p.steel_weight_kg:.1f}",
+        ],
+    }, hide_index=True)
+
+    if p.diagonal:
+        d = p.diagonal
+        st.subheader(f"Mão-francesa (diagonais) — {d.n_diagonals} × @ {d.angle_deg:.1f}°")
+        cc1, cc2, cc3 = st.columns(3)
+        cc1.metric("Comprimento", f"{d.length_mm:.0f} mm")
+        cc2.metric("Compressão por diagonal", f"{d.axial_force_kN:.2f} kN")
+        cc3.metric("η diagonal", f"{d.utilization_ratio:.3f}")
+        st.dataframe({
+            "Verificação": ["Secção", "η compressão (6.2.4)", "η encurvadura (6.3.1)", "Estado"],
+            "Valor": [
+                d.section.designation if d.section else "n/a",
+                f"{d.utilization_compression:.3f}",
+                f"{d.utilization_buckling:.3f}",
+                d.status.value,
+            ],
+        }, hide_index=True)
+        st.caption(f"Cláusula: {d.code_clause}")
+    else:
+        st.info("Sem mão-francesa: a mesa apoia-se nas duas extremidades. "
+                "Selecione 'Com mão-francesa' para escorar a ponta com diagonais.")
 
 
 def _render_base_plate_tab(res) -> None:

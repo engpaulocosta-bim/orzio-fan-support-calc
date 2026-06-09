@@ -393,6 +393,35 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════
+    # 7b. PLATAFORMA / MESA DE GRELHA
+    # ══════════════════════════════════════════════════════════════════════════
+    if res and res.platform:
+        p = res.platform
+        story.append(Paragraph("7b. PLATAFORMA / MESA DE GRELHA", S_h1))
+        rows = [
+            ("Configuração", f"{p.n_beams} vigas paralelas — "
+                             + ("com mão-francesa" if p.braced else "sem mão-francesa")),
+            ("Dimensões da mesa", f"{p.length_mm:.0f} × {p.width_mm:.0f} mm (área {p.area_m2:.2f} m²)"),
+            ("Peso próprio — tramex", f"{p.grating_weight_kg:.1f} kg ({p.grating_kg_m2:.0f} kg/m²)"),
+            ("Peso próprio — aço", f"{p.steel_weight_kg:.1f} kg (vigas + diagonais)"),
+            ("Carga por viga", f"{p.load_per_beam_kN:.2f} kN"),
+            ("Momento por viga", f"{p.moment_per_beam_kNm:.2f} kNm"),
+            ("Axial por viga (diagonal)", f"{p.axial_per_beam_kN:.2f} kN"),
+        ]
+        if p.diagonal:
+            d = p.diagonal
+            rows += [
+                ("Mão-francesa", f"{d.n_diagonals} × @ {d.angle_deg:.1f}° | L={d.length_mm:.0f} mm"),
+                ("Compressão por diagonal", f"{d.axial_force_kN:.2f} kN"),
+                ("η diagonal (compr./encurv.)",
+                 f"{d.utilization_compression:.3f} / {d.utilization_buckling:.3f} "
+                 f"→ η={d.utilization_ratio:.3f} ({d.status.value})"),
+                ("Cláusula diagonal", d.code_clause),
+            ]
+        story.append(kv_table(rows))
+        story.append(Spacer(1, 4*mm))
+
+    # ══════════════════════════════════════════════════════════════════════════
     # 8. LIGAÇÕES METÁLICAS
     # ══════════════════════════════════════════════════════════════════════════
     if res and res.metal_connection:

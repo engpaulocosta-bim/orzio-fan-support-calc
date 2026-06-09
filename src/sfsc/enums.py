@@ -9,6 +9,7 @@ class SupportType(str, Enum):
     CANTILEVER_2 = "cantilever_2"
     CANTILEVER_3 = "cantilever_3"
     PEDESTAL     = "pedestal"
+    PLATFORM     = "platform"
     COMBINED     = "combined"
 
 

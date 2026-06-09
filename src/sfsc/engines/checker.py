@@ -45,6 +45,9 @@ def run_checker(inp: FanSupportInput, result: FanSupportResult) -> CheckerStatus
             result.metal_connection.utilization_bolt_tension,
             result.metal_connection.weld_utilization,
         ])
+    if result.platform and result.platform.diagonal:
+        statuses.append(result.platform.diagonal.status)
+        ratios.append(result.platform.diagonal.utilization_ratio)
 
     if any(not math.isfinite(float(r)) for r in ratios):
         result.warnings.append("Resultado numerico invalido (NaN ou infinito); calculo marcado como FAIL.")

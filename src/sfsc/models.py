@@ -74,6 +74,20 @@ class FanSupportInput(BaseModel):
     hanger_rod_length_mm: Optional[float] = Field(default=None, gt=0,
         description="Comprimento dos varões roscados (HANGER) [mm]")
 
+    # Plataforma / mesa de grelha (PLATFORM)
+    platform_n_beams: int = Field(default=2, ge=2,
+        description="Nº de vigas paralelas da grelha (mín. 2 — as duas bordas). "
+                    "A carga vertical reparte-se por estas vigas.")
+    platform_width_mm: Optional[float] = Field(default=None, gt=0,
+        description="Largura da plataforma [mm] (perpendicular ao vão). "
+                    "None = derivar do footprint dos ventiladores.")
+    platform_length_mm: Optional[float] = Field(default=None, gt=0,
+        description="Comprimento da plataforma [mm] (direcção do vão). "
+                    "None = usar span_mm.")
+    platform_grating_kg_m2: float = Field(default=30.0, ge=0,
+        description="Peso do piso de tramex/grating por m² [kg/m²]. "
+                    "Chapa estriada/tramex 3 mm ≈ 30 kg/m².")
+
     # Anti-vibração
     anti_vibration: AntiVibrationType = AntiVibrationType.NONE
     anti_vibration_static_deflection_mm: Optional[float] = Field(default=None, gt=0,
@@ -131,6 +145,33 @@ class FanSupportInput(BaseModel):
     def total_weight_kn(self) -> float:
         from .units import kg_to_kn
         return kg_to_kn(self.total_operating_weight_kg)
+
+    @property
+    def platform_length_eff_mm(self) -> float:
+        """Comprimento efectivo da plataforma (direcção do vão)."""
+        return self.platform_length_mm or self.span_mm
+
+    @property
+    def platform_width_eff_mm(self) -> float:
+        """Largura efectiva da plataforma (perpendicular ao vão).
+
+        Sem valor explícito, deriva do footprint total dos ventiladores
+        (lado a lado na largura), com folga de 20%.
+        """
+        if self.platform_width_mm:
+            return self.platform_width_mm
+        widths = [u.footprint_width_mm for u in self.fan_units] or [600.0]
+        return 1.2 * max(sum(widths), max(widths))
+
+    @property
+    def platform_area_m2(self) -> float:
+        from .units import mm_to_m
+        return mm_to_m(self.platform_length_eff_mm) * mm_to_m(self.platform_width_eff_mm)
+
+    @property
+    def grating_weight_kg(self) -> float:
+        """Peso do tramex/grating sobre toda a área da plataforma."""
+        return self.platform_grating_kg_m2 * self.platform_area_m2
 
 
 # ── Secção metálica ────────────────────────────────────────────────────────────
@@ -310,6 +351,38 @@ class MetalConnectionResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class DiagonalResult(BaseModel):
+    """Verificação das mãos-francesas (diagonais) de uma plataforma escorada."""
+    n_diagonals: int
+    angle_deg: float
+    length_mm: float
+    axial_force_kN: float                # esforço por diagonal (compressão +)
+    section: Optional[SteelSection] = None
+    utilization_compression: float = 0.0
+    utilization_buckling: float = 0.0
+    utilization_ratio: float = 0.0
+    status: CheckerStatus = CheckerStatus.PASS
+    code_clause: str = "EN 1993-1-1 cl. 6.2.4 + 6.3.1"
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PlatformResult(BaseModel):
+    """Síntese do modelo de plataforma/mesa de grelha."""
+    n_beams: int
+    braced: bool
+    width_mm: float
+    length_mm: float
+    area_m2: float
+    grating_kg_m2: float
+    grating_weight_kg: float
+    steel_weight_kg: float
+    load_per_beam_kN: float              # carga vertical por viga
+    moment_per_beam_kNm: float
+    axial_per_beam_kN: float = 0.0       # compressão induzida pelas diagonais
+    diagonal: Optional[DiagonalResult] = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class FanSupportResult(BaseModel):
     """Resultado completo para um suporte de ventilador."""
     support_tag: str
@@ -327,6 +400,7 @@ class FanSupportResult(BaseModel):
     base_plate: Optional[BasePlateResult] = None
     anchor: Optional[AnchorResult] = None
     metal_connection: Optional[MetalConnectionResult] = None
+    platform: Optional[PlatformResult] = None
     classification_level: ClassificationLevel = ClassificationLevel.ENGINEERING_ESTIMATE
     status: CheckerStatus = CheckerStatus.PASS
     warnings: list[str] = Field(default_factory=list)

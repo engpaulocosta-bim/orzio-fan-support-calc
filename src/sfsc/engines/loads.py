@@ -2,7 +2,7 @@
 from __future__ import annotations
 import logging
 from ..models import FanSupportInput, LoadCombination
-from ..enums import Country, StructuralCode
+from ..enums import Country, StructuralCode, SupportType
 from ..units import kg_to_kn, G_GRAVITY
 
 logger = logging.getLogger("sfsc.loads")
@@ -23,23 +23,64 @@ _CODE_TO_GROUP: dict[StructuralCode, str] = {
 }
 
 
+def _platform_self_weight_kN(
+    inp: FanSupportInput,
+    steel_self_weight_kg: float | None,
+) -> tuple[float, dict[str, float]]:
+    """Peso próprio real de uma plataforma de grelha: tramex + estrutura de aço.
+
+    O tramex é peso por área (kg/m² × área). O aço é o peso real dos perfis
+    quando já conhecido (``steel_self_weight_kg``); na primeira passagem, antes
+    de a secção estar escolhida, estima-se por um kg/m típico de viga leve.
+    """
+    G_grating_kN = kg_to_kn(inp.grating_weight_kg)
+
+    if steel_self_weight_kg is not None:
+        steel_kg = steel_self_weight_kg
+    else:
+        # Estimativa pré-selecção: ~22 kg/m por viga (ordem de IPE200) × N × comprimento.
+        from ..units import mm_to_m
+        steel_kg = 22.0 * inp.platform_n_beams * mm_to_m(inp.platform_length_eff_mm)
+    G_steel_kN = kg_to_kn(steel_kg)
+
+    breakdown = {
+        "G_grating_kN": round(G_grating_kN, 3),
+        "G_steel_kN": round(G_steel_kN, 3),
+        "grating_kg": round(inp.grating_weight_kg, 1),
+        "steel_kg": round(steel_kg, 1),
+    }
+    return G_grating_kN + G_steel_kN, breakdown
+
+
 def calculate_loads(
     inp: FanSupportInput,
     structural_code: StructuralCode,
     seismic_factor_g: float,
+    steel_self_weight_kg: float | None = None,
 ) -> tuple[float, list[LoadCombination]]:
     """
     Calcula peso total e combinações de acções.
 
+    Args:
+        steel_self_weight_kg — peso real da estrutura de aço, quando já conhecido
+            (PLATFORM, 2ª passagem). None = estimar.
+
     Returns:
-        total_weight_kN  — carga permanente G (peso ventilador + suporte estimado)
+        total_weight_kN  — carga permanente G (peso ventilador + suporte)
         combinations     — lista de LoadCombination ordenada por M_y governante
     """
     # ── Carga permanente G ────────────────────────────────────────────────────
     G_equipment_kN = kg_to_kn(inp.total_operating_weight_kg)
 
-    # Peso estimado do suporte: 15% do equipamento (conservativo)
-    G_support_kN = 0.15 * G_equipment_kN
+    self_weight_breakdown: dict[str, float] = {}
+    if inp.support_type == SupportType.PLATFORM:
+        # Peso próprio real: tramex por área + aço dos perfis (sem o chute de 15%).
+        G_support_kN, self_weight_breakdown = _platform_self_weight_kN(
+            inp, steel_self_weight_kg,
+        )
+    else:
+        # Peso estimado do suporte: 15% do equipamento (conservativo)
+        G_support_kN = 0.15 * G_equipment_kN
     G_total_kN   = G_equipment_kN + G_support_kN
 
     # ── Carga variável Q (arranque dinâmico) ──────────────────────────────────
@@ -64,7 +105,10 @@ def calculate_loads(
         N_kN=0.0,
         load_factors_used={"gamma_G": gG, "gamma_Q": gQ,
                            "G_kN": G_total_kN,
-                           "Q_kN": Q_dynamic_kN},
+                           "G_equipment_kN": round(G_equipment_kN, 3),
+                           "G_support_kN": round(G_support_kN, 3),
+                           "Q_kN": Q_dynamic_kN,
+                           **self_weight_breakdown},
         description=f"{gG}×G + {gQ}×Q  =  {V_uls:.2f} kN",
     )
 

@@ -36,6 +36,7 @@ _SUPPORT_CHOICES = {
     "Pendurado (tirantes)": SupportType.HANGER,
     "Engastado (1 lado)": SupportType.CANTILEVER_1,
     "Engastado (2 lados)": SupportType.CANTILEVER_2,
+    "Plataforma / Mesa (grelha)": SupportType.PLATFORM,
 }
 
 
@@ -85,14 +86,46 @@ def render_sidebar() -> tuple[bool, Callable[[], FanSupportInput]]:
         support_type = _SUPPORT_CHOICES[support_choice]
 
         cantilever_subtype = None
-        if support_type in (SupportType.CANTILEVER_1, SupportType.CANTILEVER_2):
+        if support_type in (SupportType.CANTILEVER_1, SupportType.CANTILEVER_2,
+                            SupportType.PLATFORM):
             csub = st.radio(
-                "Contraventamento",
+                "Mão-francesa (contraventamento)",
                 ["bracketed", "pure"],
                 format_func=lambda x: "Com mão-francesa" if x == "bracketed" else "Sem mão-francesa",
                 horizontal=True,
+                help="A plataforma é calculada com e sem mão-francesa. Com mão-francesa, "
+                     "as diagonais a 45° escoram a ponta e são verificadas à parte.",
             )
             cantilever_subtype = CantileverSubtype(csub)
+
+        # Parâmetros da grelha da plataforma.
+        platform_n_beams = 2
+        platform_width_mm = None
+        platform_length_mm = None
+        platform_grating_kg_m2 = 30.0
+        if support_type == SupportType.PLATFORM:
+            st.caption("Grelha da mesa (mín. 2 vigas — as duas bordas)")
+            platform_n_beams = int(st.number_input(
+                "Nº de vigas paralelas", min_value=2, max_value=12, value=2, step=1,
+                help="A carga vertical reparte-se igualmente por estas vigas.",
+            ))
+            col_pw, col_pl = st.columns(2)
+            with col_pw:
+                _pw = st.number_input(
+                    "Largura plataforma [mm] (0 = auto)", min_value=0.0, value=0.0, step=50.0,
+                    help="0 = derivar do footprint dos ventiladores.",
+                )
+                platform_width_mm = _pw or None
+            with col_pl:
+                _pl = st.number_input(
+                    "Comprimento plataforma [mm] (0 = vão)", min_value=0.0, value=0.0, step=50.0,
+                    help="0 = usar o vão L.",
+                )
+                platform_length_mm = _pl or None
+            platform_grating_kg_m2 = st.number_input(
+                "Peso do tramex/grating [kg/m²]", min_value=0.0, value=30.0, step=1.0,
+                help="Tramex/chapa estriada 3 mm ≈ 30 kg/m². Entra como peso próprio.",
+            )
 
         operation_mode = OperationMode.DIMENSION
         received_section_tag = None
@@ -229,6 +262,10 @@ def render_sidebar() -> tuple[bool, Callable[[], FanSupportInput]]:
             span_mm=span_mm,
             eccentricity_mm=ecc_mm,
             hanger_rod_length_mm=hanger_rod_mm,
+            platform_n_beams=platform_n_beams,
+            platform_width_mm=platform_width_mm,
+            platform_length_mm=platform_length_mm,
+            platform_grating_kg_m2=platform_grating_kg_m2,
             anti_vibration=anti_vib,
             anti_vibration_static_deflection_mm=av_defl_mm,
             include_base_plate=include_bp,

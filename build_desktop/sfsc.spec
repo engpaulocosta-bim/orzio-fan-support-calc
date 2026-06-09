@@ -67,6 +67,7 @@ hiddenimports = [
     "sfsc.engines.support_types.cantilever_2",
     "sfsc.engines.support_types.cantilever_3",
     "sfsc.engines.support_types.pedestal",
+    "sfsc.engines.support_types.platform",
     "sfsc.engines.support_types.combined",
     "sfsc.reports",
     "sfsc.reports.memorial_pdf",
