@@ -67,6 +67,8 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
             ("Utilização governante [%]", round(assessment.utilization_percent, 1) if assessment and assessment.utilization_percent is not None else "—"),
             ("Conservadorismo informativo [%]", round(assessment.conservatism_percent, 1) if assessment and assessment.conservatism_percent is not None else "—"),
             ("Perfil seleccionado", res.recommended_section.designation if res.recommended_section else "—"),
+            ("Categoria do perfil", res.recommended_section.catalog_status if res.recommended_section else "—"),
+            ("Motivo da escolha", "Menor perfil recomendado/aceitavel que passa no catalogo filtrado por peso"),
             ("Utilização máx. secção", res.section_verification.utilization_ratio if res.section_verification else "—"),
             ("Estado global", res.status.value),
             ("Classificação", res.classification_level.value),
@@ -98,6 +100,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         n3 = 1
         for k, v in [
             ("Designação", sec.designation), ("Família", sec.family.value),
+            ("Categoria", sec.catalog_status),
             ("h [mm]", sec.h_mm), ("b [mm]", sec.b_mm),
             ("tw [mm]", sec.tw_mm), ("tf [mm]", sec.tf_mm),
             ("A [cm²]", sec.A_cm2), ("I_y [cm⁴]", sec.I_y_cm4),
@@ -131,6 +134,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         for k, v in [
             ("L [mm]", bp.length_mm), ("B [mm]", bp.width_mm),
             ("Espessura [mm]", bp.thickness_mm), ("Aço", bp.steel_grade.value),
+            ("Material de fixação", bp.anchorage_substrate.value),
             ("σ_bearing [MPa]", bp.bearing_stress_mpa),
             ("η_bearing", bp.utilization_bearing), ("η_bending", bp.utilization_bending),
             ("Parafusos ventilador", f"M{bp.bolt_diameter_mm:.0f} × {bp.n_bolts_fan}"),
@@ -159,6 +163,12 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         anc = res.anchor
         n5 = 1
         for k, v in [
+            ("Material de fixação", anc.anchorage_substrate.value),
+            ("Tipo de conector", anc.connector_label),
+            ("Aço receptor", anc.receiver_steel_grade.value if anc.receiver_steel_grade else ""),
+            ("Espessura receptor [mm]", anc.receiver_plate_thickness_mm),
+            ("Bordo receptor [mm]", anc.receiver_edge_distance_mm),
+            ("Espaçamento receptor [mm]", anc.receiver_spacing_mm),
             ("Nº ancoragens", anc.n_anchors),
             ("Diâmetro [mm]", anc.anchor_diameter_mm),
             ("Profundidade hef [mm]", anc.embedment_depth_mm),
@@ -167,6 +177,10 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
             ("η_tracção", anc.utilization_tension),
             ("η_corte", anc.utilization_shear),
             ("η_interacção", anc.utilization_combined),
+            ("η_esmagamento receptor", anc.utilization_bearing),
+            ("η_bordo/espaçamento", anc.utilization_tearout),
+            ("η_bloco corte", anc.utilization_block_shear),
+            ("η_prying", anc.utilization_prying),
             ("Estado", anc.status.value), ("Cláusula", anc.code_clause),
         ]:
             _kv_row(ws5, None, k, v, n5); n5 += 1
@@ -232,14 +246,24 @@ def generate_csv(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         "design_load_kN": res.design_load_kN if res else "",
         "seismic_factor_g": res.seismic_factor_g if res else "",
         "section": res.recommended_section.designation if (res and res.recommended_section) else "",
+        "section_category": res.recommended_section.catalog_status if (res and res.recommended_section) else "",
         "section_utilization": res.section_verification.utilization_ratio if (res and res.section_verification) else "",
         "base_plate_t_mm": res.base_plate.thickness_mm if (res and res.base_plate) else "",
+        "anchorage_substrate": res.anchor.anchorage_substrate.value if (res and res.anchor) else "",
         "base_plate_hole_d_mm": res.base_plate.hole_diameter_mm if (res and res.base_plate) else "",
         "base_plate_concrete_cone_eta": res.base_plate.utilization_concrete_cone if (res and res.base_plate) else "",
         "base_plate_pullout_eta": res.base_plate.utilization_pullout if (res and res.base_plate) else "",
         "base_plate_pryout_eta": res.base_plate.utilization_pryout if (res and res.base_plate) else "",
         "anchor_d_mm": res.anchor.anchor_diameter_mm if (res and res.anchor) else "",
         "n_anchors": res.anchor.n_anchors if (res and res.anchor) else "",
+        "receiver_steel_grade": res.anchor.receiver_steel_grade.value if (res and res.anchor and res.anchor.receiver_steel_grade) else "",
+        "receiver_t_mm": res.anchor.receiver_plate_thickness_mm if (res and res.anchor) else "",
+        "receiver_edge_mm": res.anchor.receiver_edge_distance_mm if (res and res.anchor) else "",
+        "receiver_spacing_mm": res.anchor.receiver_spacing_mm if (res and res.anchor) else "",
+        "receiver_bearing_eta": res.anchor.utilization_bearing if (res and res.anchor) else "",
+        "receiver_tearout_eta": res.anchor.utilization_tearout if (res and res.anchor) else "",
+        "receiver_block_shear_eta": res.anchor.utilization_block_shear if (res and res.anchor) else "",
+        "receiver_prying_eta": res.anchor.utilization_prying if (res and res.anchor) else "",
         "metal_connection": res.metal_connection.connection_type if (res and res.metal_connection) else "",
         "metal_connection_eta": res.metal_connection.utilization_ratio if (res and res.metal_connection) else "",
         "metal_connection_bolts": (

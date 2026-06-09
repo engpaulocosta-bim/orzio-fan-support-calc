@@ -1,7 +1,9 @@
 """Testes dos catálogos de perfis, aços e sísmico."""
 import pytest
 from sfsc.enums import SectionFamily, SteelGrade, Country
-from sfsc.catalogs.steel_section_catalog import get_section, list_sections, find_minimum_section
+from sfsc.catalogs.steel_section_catalog import (
+    find_minimum_section, get_section, list_sections, list_selectable_sections,
+)
 from sfsc.catalogs.steel_grade_catalog import get_grade_spec, design_strength
 from sfsc.catalogs.seismic_catalog import get_seismic_factor, list_zones
 
@@ -41,6 +43,15 @@ def test_section_properties():
     assert sec.I_y_mm4 == pytest.approx(sec.I_y_cm4 * 1e4, rel=0.001)
     # W_el_y_mm3
     assert sec.W_el_y_mm3 == pytest.approx(sec.W_el_y_cm3 * 1e3, rel=0.001)
+
+
+def test_catalog_classifies_and_hides_disproportionate_heavy_profiles():
+    all_heb = list_sections(SectionFamily.HEB)
+    selectable_heb = list_selectable_sections(SectionFamily.HEB)
+
+    assert any(s.catalog_status == "hidden" for s in all_heb)
+    assert all(s.catalog_status != "hidden" for s in selectable_heb)
+    assert all(s.weight_kgm < 120.0 for s in selectable_heb)
 
 
 def test_steel_grade_s355():

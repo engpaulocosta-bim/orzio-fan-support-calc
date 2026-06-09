@@ -35,6 +35,7 @@ def mm2_to_cm2(mm2: float) -> float: return mm2 / 1e2
 
 # ── Massa / Peso ───────────────────────────────────────────────────────────────
 def kg_to_kn(kg: float) -> float:    return kgf_to_kn(kg)
+def kg_to_n(kg: float) -> float:     return kg * G_GRAVITY
 def tonne_to_kn(t: float) -> float:  return t * G_GRAVITY
 
 # ── Constantes ─────────────────────────────────────────────────────────────────

@@ -1,4 +1,8 @@
 @echo off
 cd /d "%~dp0"
-streamlit run app.py --server.port 8502
-pause
+if exist "dist\SFSC.exe" (
+    start "" "dist\SFSC.exe"
+) else (
+    streamlit run app.py --server.port 8502
+    pause
+)

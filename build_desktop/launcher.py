@@ -70,6 +70,7 @@ def _configure_environment() -> None:
     os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
     os.environ.setdefault("STREAMLIT_SERVER_ADDRESS", "127.0.0.1")
     os.environ.setdefault("STREAMLIT_GLOBAL_DEVELOPMENT_MODE", "false")
+    os.environ.setdefault("STREAMLIT_CLIENT_TOOLBAR_MODE", "minimal")
     os.chdir(BUNDLE_DIR)
 
 
@@ -86,6 +87,9 @@ def _run_streamlit_server(port: int) -> None:
         "server_fileWatcherType": "none",
         "browser_gatherUsageStats": False,
         "global_developmentMode": False,
+        # Hide the Deploy button and the developer/hamburger menu — this is a
+        # packaged desktop product, not a dev session.
+        "client_toolbarMode": "minimal",
     }
     bootstrap.load_config_options(flag_options)
     bootstrap.run(

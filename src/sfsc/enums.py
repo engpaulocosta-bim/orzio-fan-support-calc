@@ -9,6 +9,7 @@ class SupportType(str, Enum):
     CANTILEVER_2 = "cantilever_2"
     CANTILEVER_3 = "cantilever_3"
     PEDESTAL     = "pedestal"
+    PLATFORM     = "platform"
     COMBINED     = "combined"
 
 
@@ -101,6 +102,11 @@ class FanConnectionType(str, Enum):
     DIRECT_FLANGE = "direct_flange"   # flange do ventilador parafusa directamente na chapa
     FRAME_PLATFORM = "frame_platform" # ventilador pousa num frame, frame fixa à estrutura
     BOTH           = "both"           # utilizador define caso a caso
+
+
+class AnchorageSubstrate(str, Enum):
+    CONCRETE = "concrete"
+    STEEL_STRUCTURE = "steel_structure"
 
 
 class FanType(str, Enum):

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 from ..models import ReportContext
 from ..assessment import assess_result
+from ..enums import AnchorageSubstrate
 
 # Cores Orzio
 BLUE    = (0.08, 0.28, 0.90)   # #1447E6
@@ -39,6 +40,7 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
             SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
             HRFlowable, KeepTogether,
         )
+        from reportlab.graphics.shapes import Drawing, Line, Rect, String, Circle, Polygon
         from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
     except ImportError:
         raise ImportError("reportlab não instalado. Execute: pip install reportlab")
@@ -96,6 +98,52 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
             ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
         ]))
         return t
+
+    def technical_sketch():
+        if not inp:
+            return None
+        d = Drawing(W, 68*mm)
+        steel = colors.HexColor("#1d4ed8")
+        base = colors.HexColor("#1e40af")
+        dim = colors.HexColor("#475569")
+        load = colors.HexColor("#dc2626")
+        plate = colors.HexColor("#f59e0b")
+        x0 = 18*mm
+        y0 = 12*mm
+        x1 = W - 48*mm
+        y1 = 52*mm
+        receiver_h = y1 - y0 + 8*mm
+        d.add(Rect(x0, y0 - 4*mm, 8*mm, receiver_h, fillColor=colors.HexColor("#cbd5e1"), strokeColor=dim))
+        d.add(String(x0 - 2*mm, y1 + 6*mm, "perfil receptor", fontSize=7, fillColor=dim))
+        d.add(Rect(x0 + 4*mm, y1 - 2*mm, x1 - x0, 4*mm, fillColor=base, strokeColor=base))
+        d.add(String((x0 + x1) / 2, y1 + 4*mm, "base reta engastada/aparafusada", fontSize=7, textAnchor="middle", fillColor=base))
+        if inp.cantilever_subtype and inp.cantilever_subtype.value == "bracketed":
+            d.add(Line(x0 + 4*mm, y0 + 10*mm, x1 - 26*mm, y1, strokeColor=steel, strokeWidth=3))
+            d.add(String(x0 + 28*mm, y0 + 20*mm, "mao-francesa", fontSize=7, fillColor=steel))
+        if inp.include_base_plate:
+            d.add(Rect(x1 - 39*mm, y1 + 1*mm, 30*mm, 3*mm, fillColor=plate, strokeColor=plate))
+            d.add(String(x1 - 24*mm, y1 + 7*mm, "base plate", fontSize=7, textAnchor="middle", fillColor=colors.HexColor("#92400e")))
+        fan_w = 28*mm
+        fan_h = 18*mm
+        fan_x = x1 - 38*mm
+        fan_y = y1 + 3*mm
+        d.add(Rect(fan_x, fan_y, fan_w, fan_h, fillColor=colors.HexColor("#e2e8f0"), strokeColor=dim))
+        d.add(String(fan_x + fan_w/2, fan_y + fan_h/2, "VENTILADOR", fontSize=7, textAnchor="middle", fillColor=colors.HexColor("#0f172a")))
+        cg_x = fan_x + fan_w/2
+        cg_y = fan_y + fan_h/2
+        d.add(Circle(cg_x, cg_y, 2.2*mm, fillColor=colors.white, strokeColor=colors.HexColor("#0f172a")))
+        d.add(String(cg_x + 4*mm, cg_y + 2*mm, "CG", fontSize=6, fillColor=colors.HexColor("#0f172a")))
+        d.add(Line(cg_x, fan_y + fan_h + 15*mm, cg_x, fan_y + fan_h + 2*mm, strokeColor=load, strokeWidth=1.5))
+        d.add(Polygon([cg_x - 2*mm, fan_y + fan_h + 4*mm, cg_x + 2*mm, fan_y + fan_h + 4*mm, cg_x, fan_y + fan_h], fillColor=load, strokeColor=load))
+        d.add(String(cg_x + 3*mm, fan_y + fan_h + 10*mm, "F_Ed", fontSize=7, fillColor=load))
+        if inp.anti_vibration.value == "springs":
+            for sx in (fan_x + 7*mm, fan_x + fan_w - 7*mm):
+                d.add(Circle(sx, y1 + 2*mm, 2*mm, fillColor=colors.HexColor("#ccfbf1"), strokeColor=colors.HexColor("#0f766e")))
+        d.add(Line(x0 + 4*mm, y0 - 2*mm, x1 - 10*mm, y0 - 2*mm, strokeColor=dim, strokeWidth=0.8))
+        d.add(String((x0 + x1) / 2, y0 - 7*mm, f"L = {inp.span_mm:.0f} mm", fontSize=7, textAnchor="middle", fillColor=dim))
+        d.add(Line(x1 + 12*mm, y0, x1 + 12*mm, y1, strokeColor=dim, strokeWidth=0.8))
+        d.add(String(x1 + 15*mm, (y0 + y1) / 2, f"H = {inp.installation_height_mm:.0f} mm", fontSize=7, fillColor=dim))
+        return d
 
     story = []
 
@@ -219,11 +267,17 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
             ("Anti-vibração", inp.anti_vibration.value),
             ("Mesa / base plate", "Sim" if inp.include_base_plate else "Não"),
             ("Classe de exposição", inp.exposure_class.value),
-            ("Betão de suporte", inp.concrete_grade),
+            ("Material de fixação", inp.anchorage_substrate.value),
+            ("Betão de suporte", inp.concrete_grade if inp.anchorage_substrate == AnchorageSubstrate.CONCRETE else "n/a"),
         ]
         if inp.cantilever_subtype:
             rows_geo.insert(1, ("Subtipo consola", inp.cantilever_subtype.value))
         story.append(kv_table(rows_geo))
+        sketch = technical_sketch()
+        if sketch:
+            story.append(Spacer(1, 2*mm))
+            story.append(Paragraph("Croqui técnico paramétrico", S_h2))
+            story.append(sketch)
     story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -263,6 +317,8 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         sec = res.recommended_section
         story.append(kv_table([
             ("Perfil seleccionado", f"<b>{sec.designation}</b>  ({sec.family.value})"),
+            ("Categoria do catálogo", sec.catalog_status),
+            ("Motivo da escolha", "Menor perfil recomendado/aceitável que passa no catálogo filtrado por peso"),
             ("Aço", inp.steel_grade.value if inp else "—"),
             ("h × b × tw × tf", f"{sec.h_mm} × {sec.b_mm} × {sec.tw_mm} × {sec.tf_mm} mm"),
             ("A", f"{sec.A_cm2:.1f} cm²"),
@@ -298,6 +354,7 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
             ("Dimensões L × B", f"{bp.length_mm:.0f} × {bp.width_mm:.0f} mm"),
             ("Espessura", f"{bp.thickness_mm:.0f} mm"),
             ("Aço da chapa", bp.steel_grade.value),
+            ("Material de fixação", bp.anchorage_substrate.value),
             ("Tensão de contacto", f"{bp.bearing_stress_mpa:.2f} MPa  (η = {bp.utilization_bearing:.3f})"),
             ("Flexão da chapa", f"η = {bp.utilization_bending:.3f}"),
             ("Parafusos ventilador → chapa", f"M{bp.bolt_diameter_mm:.0f} × {bp.n_bolts_fan}  (η = {bp.bolt_utilization_fan:.3f})"),
@@ -319,14 +376,49 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     if res and res.anchor:
         anc = res.anchor
         story.append(kv_table([
+            ("Material de fixação", anc.anchorage_substrate.value),
+            ("Tipo de conector", anc.connector_label),
+            ("Aço receptor", anc.receiver_steel_grade.value if anc.receiver_steel_grade else ""),
+            ("Espessura receptor", f"{anc.receiver_plate_thickness_mm:.1f} mm" if anc.receiver_plate_thickness_mm else "n/a"),
+            ("Bordo / espaçamento receptor", f"{anc.receiver_edge_distance_mm:.1f} / {anc.receiver_spacing_mm:.1f} mm" if anc.receiver_plate_thickness_mm else "n/a"),
             ("Número de ancoragens", str(anc.n_anchors)),
             ("Diâmetro", f"Ø{anc.anchor_diameter_mm:.0f} mm"),
             ("Profundidade de embebimento", f"{anc.embedment_depth_mm:.0f} mm"),
             ("Capacidade de tracção total", f"{anc.tensile_capacity_kN:.2f} kN  (η = {anc.utilization_tension:.3f})"),
             ("Capacidade de corte total", f"{anc.shear_capacity_kN:.2f} kN  (η = {anc.utilization_shear:.3f})"),
             ("Interacção tracção + corte", f"η_comb = {anc.utilization_combined:.3f}"),
+            ("Esmagamento / bordo / bloco / prying", f"η = {max(anc.utilization_bearing, anc.utilization_tearout, anc.utilization_block_shear, anc.utilization_prying):.3f}"),
             ("Cláusula", anc.code_clause),
         ]))
+        story.append(Spacer(1, 4*mm))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 7b. PLATAFORMA / MESA DE GRELHA
+    # ══════════════════════════════════════════════════════════════════════════
+    if res and res.platform:
+        p = res.platform
+        story.append(Paragraph("7b. PLATAFORMA / MESA DE GRELHA", S_h1))
+        rows = [
+            ("Configuração", f"{p.n_beams} vigas paralelas — "
+                             + ("com mão-francesa" if p.braced else "sem mão-francesa")),
+            ("Dimensões da mesa", f"{p.length_mm:.0f} × {p.width_mm:.0f} mm (área {p.area_m2:.2f} m²)"),
+            ("Peso próprio — tramex", f"{p.grating_weight_kg:.1f} kg ({p.grating_kg_m2:.0f} kg/m²)"),
+            ("Peso próprio — aço", f"{p.steel_weight_kg:.1f} kg (vigas + diagonais)"),
+            ("Carga por viga", f"{p.load_per_beam_kN:.2f} kN"),
+            ("Momento por viga", f"{p.moment_per_beam_kNm:.2f} kNm"),
+            ("Axial por viga (diagonal)", f"{p.axial_per_beam_kN:.2f} kN"),
+        ]
+        if p.diagonal:
+            d = p.diagonal
+            rows += [
+                ("Mão-francesa", f"{d.n_diagonals} × @ {d.angle_deg:.1f}° | L={d.length_mm:.0f} mm"),
+                ("Compressão por diagonal", f"{d.axial_force_kN:.2f} kN"),
+                ("η diagonal (compr./encurv.)",
+                 f"{d.utilization_compression:.3f} / {d.utilization_buckling:.3f} "
+                 f"→ η={d.utilization_ratio:.3f} ({d.status.value})"),
+                ("Cláusula diagonal", d.code_clause),
+            ]
+        story.append(kv_table(rows))
         story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════

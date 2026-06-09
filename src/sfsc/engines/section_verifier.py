@@ -5,7 +5,7 @@ import logging
 from ..models import SteelSection, LoadCombination, SectionVerificationResult
 from ..enums import SteelGrade, StructuralCode, CheckerStatus, SectionFamily
 from ..catalogs.steel_grade_catalog import get_grade_spec, design_strength
-from ..catalogs.steel_section_catalog import list_sections
+from ..catalogs.steel_section_catalog import list_selectable_sections, section_catalog_rank
 
 logger = logging.getLogger("sfsc.section_verifier")
 
@@ -169,7 +169,7 @@ def find_passing_sections(
     seen: set[tuple[SectionFamily, str]] = set()
 
     for family in preferred_families:
-        for section in list_sections(family):
+        for section in list_selectable_sections(family):
             key = (section.family, section.designation)
             if key in seen:
                 continue
@@ -181,10 +181,7 @@ def find_passing_sections(
             if result.utilization_ratio <= max_utilization:
                 candidates.append(result)
 
-    return sorted(
-        candidates,
-        key=lambda r: (r.section.weight_kgm, r.section.family.value, r.section.designation),
-    )
+    return sorted(candidates, key=lambda r: section_catalog_rank(r.section))
 
 
 def auto_select_section(
@@ -201,22 +198,38 @@ def auto_select_section(
     Levanta OutOfScopeError se nenhum perfil satisfaz.
     """
     from ..exceptions import OutOfScopeError
+    best_failed: SectionVerificationResult | None = None
 
     # Combinação governante = maior V_z
     governing = max(combinations, key=lambda c: abs(c.V_z_kN))
 
+    candidates: list[SectionVerificationResult] = []
     for family in preferred_families:
-        for section in list_sections(family):
+        for section in list_selectable_sections(family):
             result = verify_section(
                 section, governing, code, steel_grade,
                 buckling_length_y_mm, buckling_length_z_mm,
             )
+            if best_failed is None or result.utilization_ratio < best_failed.utilization_ratio:
+                best_failed = result
             if result.utilization_ratio <= max_utilization:
-                logger.info(
-                    "Seleccionado: %s  η=%.3f  check=%s",
-                    section.designation, result.utilization_ratio, result.governing_check
-                )
-                return section, result
+                candidates.append(result)
+
+    if candidates:
+        result = sorted(candidates, key=lambda r: section_catalog_rank(r.section))[0]
+        logger.info(
+            "Seleccionado: %s  eta=%.3f  check=%s",
+            result.section.designation, result.utilization_ratio, result.governing_check
+        )
+        return result.section, result
+
+    if best_failed is not None:
+        best_failed.status = CheckerStatus.FAIL
+        best_failed.warnings.append(
+            "Nenhum perfil selecionado satisfaz o limite de utilizacao. "
+            "Resultado apresentado com o melhor candidato do catalogo."
+        )
+        return best_failed.section, best_failed
 
     raise OutOfScopeError(
         "Nenhum perfil no catálogo satisfaz as verificações EC3. "

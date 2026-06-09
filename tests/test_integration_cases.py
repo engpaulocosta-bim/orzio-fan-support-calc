@@ -3,7 +3,7 @@ import pytest
 from sfsc.enums import (
     SupportType, Country, SteelGrade, SectionFamily, FanType,
     CantileverSubtype, FanConnectionType, AntiVibrationType,
-    CheckerStatus,
+    CheckerStatus, AnchorageSubstrate,
 )
 from sfsc.models import FanSupportInput, FanUnit
 from sfsc.engines.selector import run_full_calculation, context_for_section_choice
@@ -215,3 +215,47 @@ def test_bracketed_cantilever_reports_diagonal_and_stiffener():
     assert conn.plate_thickness_mm >= 8.0
     assert conn.provided_spacing_mm >= conn.min_spacing_mm
     assert conn.provided_edge_distance_mm >= conn.min_edge_distance_mm
+
+
+def test_steel_structure_anchorage_uses_bolted_connection_not_concrete_checks():
+    inp = _make_inp(
+        support_tag="CASE-13",
+        support_type=SupportType.PEDESTAL,
+        include_base_plate=True,
+        fan_connection_type=FanConnectionType.FRAME_PLATFORM,
+        anchorage_substrate=AnchorageSubstrate.STEEL_STRUCTURE,
+    )
+    ctx = run_full_calculation(inp)
+    res = ctx.fan_support_result
+
+    assert res.base_plate.anchorage_substrate == AnchorageSubstrate.STEEL_STRUCTURE
+    assert res.base_plate.concrete_cone_capacity_kN == 0.0
+    assert res.base_plate.utilization_concrete_cone == 0.0
+    assert res.anchor.anchorage_substrate == AnchorageSubstrate.STEEL_STRUCTURE
+    assert res.anchor.embedment_depth_mm == 0.0
+    assert "estrutura metálica" in res.anchor.connector_label
+    assert res.anchor.receiver_steel_grade == SteelGrade.S235
+    assert res.anchor.receiver_plate_thickness_mm == 10.0
+    assert res.anchor.utilization_bearing >= 0.0
+    assert res.anchor.utilization_block_shear >= 0.0
+    assert res.anchor.utilization_prying >= 0.0
+    assert res.anchor.status in (CheckerStatus.PASS, CheckerStatus.MARGINAL, CheckerStatus.FAIL)
+
+
+def test_weak_steel_receiver_returns_fail_instead_of_error():
+    inp = _make_inp(
+        support_tag="CASE-14",
+        support_type=SupportType.PEDESTAL,
+        include_base_plate=True,
+        fan_connection_type=FanConnectionType.FRAME_PLATFORM,
+        anchorage_substrate=AnchorageSubstrate.STEEL_STRUCTURE,
+        receiver_plate_thickness_mm=3.0,
+        receiver_edge_distance_mm=10.0,
+        receiver_spacing_mm=20.0,
+    )
+    ctx = run_full_calculation(inp)
+    res = ctx.fan_support_result
+
+    assert res.anchor.status == CheckerStatus.FAIL
+    assert res.status == CheckerStatus.FAIL
+    assert res.anchor.utilization_tearout > 1.0 or res.anchor.utilization_block_shear > 1.0
