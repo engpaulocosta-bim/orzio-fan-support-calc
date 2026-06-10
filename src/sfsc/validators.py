@@ -2,6 +2,7 @@
 from __future__ import annotations
 from .exceptions import MissingInputError, ValidationError, OutOfScopeError
 from .enums import OperationMode, SupportType
+from .policy import WeightBand, weight_band, WEIGHT_BLOCK_KG, WEIGHT_PRODUCT_MAX_KG
 
 
 def validate_fan_support_input(inp) -> None:
@@ -14,12 +15,23 @@ def validate_fan_support_input(inp) -> None:
     if total_weight <= 0:
         raise ValidationError("Peso total do ventilador deve ser > 0 kg", "operating_weight_kg")
 
-    if total_weight > 2000:
+    band = weight_band(total_weight)
+    if band == WeightBand.BLOCKED:
         raise OutOfScopeError(
-            "Peso total fora do âmbito do modelo",
+            "Peso total fora do âmbito do modelo (política de escopo SFSC)",
             parameter="total_weight_kg",
             value=round(total_weight, 1),
-            limit=2000,
+            limit=WEIGHT_BLOCK_KG,
+        )
+    if band == WeightBand.EXTENDED and not inp.confirm_extended_range:
+        raise OutOfScopeError(
+            "Peso total fora da faixa do produto. Utilização entre "
+            f"{WEIGHT_PRODUCT_MAX_KG:.0f} e {WEIGHT_BLOCK_KG:.0f} kg exige "
+            "confirmação explícita (confirm_extended_range=True) e revisão "
+            "por engenheiro estrutural qualificado",
+            parameter="total_weight_kg",
+            value=round(total_weight, 1),
+            limit=WEIGHT_PRODUCT_MAX_KG,
         )
 
     if inp.installation_height_mm <= 0:

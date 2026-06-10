@@ -64,6 +64,19 @@ def verify_section(
     checks["bending_y"] = eta_M
     clauses.append("EN 1993-1-1 cl. 6.2.5")
 
+    # ── 6.2.5 Flexão no eixo fraco (M_z — acções horizontais/sísmicas) ────────
+    M_z_Ed_kNm = abs(combination.M_z_kNm)
+    eta_Mz = 0.0
+    if M_z_Ed_kNm > 0:
+        Mc_z_Rd_kNm = (section.W_pl_z_mm3 * fy_eff) / (gamma_M0 * 1e6)
+        eta_Mz = M_z_Ed_kNm / Mc_z_Rd_kNm if Mc_z_Rd_kNm > 0 else 99.0
+        checks["bending_z"] = eta_Mz
+        # Interacção biaxial — soma linear (conservativa face a EN 1993-1-1
+        # cl. 6.2.9.1(6), que permite expoentes α=2, β=1 em perfis I)
+        if M_Ed_kNm > 0:
+            checks["bending_biaxial"] = eta_M + eta_Mz
+        clauses.append("EN 1993-1-1 cl. 6.2.9")
+
     # ── 6.3.2 Encurvadura lateral (LTB) ──────────────────────────────────────
     if M_Ed_kNm > 0 and buckling_length_y_mm > 0:
         Lcr_mm = buckling_length_y_mm
@@ -154,6 +167,67 @@ def verify_section(
         assumptions_used=assumptions,
     )
 
+def _uls_combinations(combinations: list[LoadCombination]) -> list[LoadCombination]:
+    """Combinações de resistência (ULS). SLS reservada para deformação (não implementada)."""
+    uls = [c for c in combinations if c.name.upper().startswith("ULS")]
+    return uls or list(combinations)
+
+
+def verify_section_envelope(
+    section: SteelSection,
+    combinations: list[LoadCombination],
+    code: StructuralCode,
+    steel_grade: SteelGrade,
+    buckling_length_y_mm: float,
+    buckling_length_z_mm: float,
+) -> SectionVerificationResult:
+    """
+    Verifica a secção contra TODAS as combinações ULS e devolve o envelope
+    (auditoria C-01 — a combinação sísmica também é verificada).
+
+    utilization_by_check = máximo por verificação ao longo das combinações;
+    governing_combination identifica a combinação que produz o η máximo.
+    """
+    results: list[tuple[LoadCombination, SectionVerificationResult]] = [
+        (c, verify_section(
+            section, c, code, steel_grade,
+            buckling_length_y_mm, buckling_length_z_mm,
+        ))
+        for c in _uls_combinations(combinations)
+    ]
+
+    merged_checks: dict[str, float] = {}
+    warnings: list[str] = []
+    clauses: list[str] = []
+    for _, r in results:
+        for k, v in r.utilization_by_check.items():
+            merged_checks[k] = max(merged_checks.get(k, 0.0), v)
+        warnings.extend(w for w in r.warnings if w not in warnings)
+        clauses.extend(cl for cl in r.code_clause.split(" | ") if cl and cl not in clauses)
+
+    gov_combo, gov_result = max(results, key=lambda t: t[1].utilization_ratio)
+    max_ratio = gov_result.utilization_ratio
+
+    if max_ratio > 1.0:
+        status = CheckerStatus.FAIL
+    elif max_ratio > MAX_UTILIZATION:
+        status = CheckerStatus.MARGINAL
+    else:
+        status = CheckerStatus.PASS
+
+    return SectionVerificationResult(
+        section=section,
+        utilization_ratio=max_ratio,
+        utilization_by_check={k: round(v, 4) for k, v in merged_checks.items()},
+        governing_check=gov_result.governing_check,
+        governing_combination=gov_combo.name,
+        status=status,
+        code_clause=" | ".join(clauses),
+        warnings=warnings,
+        assumptions_used=gov_result.assumptions_used,
+    )
+
+
 def find_passing_sections(
     combinations: list[LoadCombination],
     code: StructuralCode,
@@ -163,8 +237,7 @@ def find_passing_sections(
     buckling_length_z_mm: float,
     max_utilization: float = 1.0,
 ) -> list[SectionVerificationResult]:
-    """Retorna todos os perfis que verificam, ordenados por peso crescente."""
-    governing = max(combinations, key=lambda c: abs(c.V_z_kN))
+    """Retorna todos os perfis que verificam o envelope ULS, por peso crescente."""
     candidates: list[SectionVerificationResult] = []
     seen: set[tuple[SectionFamily, str]] = set()
 
@@ -174,8 +247,8 @@ def find_passing_sections(
             if key in seen:
                 continue
             seen.add(key)
-            result = verify_section(
-                section, governing, code, steel_grade,
+            result = verify_section_envelope(
+                section, combinations, code, steel_grade,
                 buckling_length_y_mm, buckling_length_z_mm,
             )
             if result.utilization_ratio <= max_utilization:
@@ -197,18 +270,16 @@ def auto_select_section(
     max_utilization: float = MAX_UTILIZATION,
 ) -> tuple[SteelSection, SectionVerificationResult]:
     """
-    Itera catálogos (peso crescente) e retorna o perfil mais leve que verifica.
+    Itera catálogos (peso crescente) e retorna o perfil mais leve que verifica
+    o envelope de TODAS as combinações ULS.
     Levanta OutOfScopeError se nenhum perfil satisfaz.
     """
     from ..exceptions import OutOfScopeError
 
-    # Combinação governante = maior V_z
-    governing = max(combinations, key=lambda c: abs(c.V_z_kN))
-
     for family in preferred_families:
         for section in list_sections(family):
-            result = verify_section(
-                section, governing, code, steel_grade,
+            result = verify_section_envelope(
+                section, combinations, code, steel_grade,
                 buckling_length_y_mm, buckling_length_z_mm,
             )
             if result.utilization_ratio <= max_utilization:

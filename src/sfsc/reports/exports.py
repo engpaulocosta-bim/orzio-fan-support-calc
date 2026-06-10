@@ -77,19 +77,27 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
     _set_col_widths(ws, [35, 30])
 
     # ── Folha 2: Combinações ──────────────────────────────────────────────────
+    # Dois níveis distintos (auditoria C-02): acções totais vs esforços no elemento.
     ws2 = wb.create_sheet("Combinações")
-    headers_c = ["Combinação", "V_z (kN)", "V_y (kN)", "M_y (kNm)", "N (kN)", "Governante"]
+    headers_c = ["Nível", "Combinação", "V_z (kN)", "V_y (kN)", "M_y (kNm)", "N (kN)", "Governante"]
     for j, h in enumerate(headers_c, 1):
         _header_style(ws2.cell(1, j, h))
-    if res and res.all_combinations:
-        for i, c in enumerate(res.all_combinations, 2):
-            ws2.cell(i, 1, c.name)
-            ws2.cell(i, 2, round(c.V_z_kN, 3))
-            ws2.cell(i, 3, round(c.V_y_kN, 3))
-            ws2.cell(i, 4, round(c.M_y_kNm, 3))
-            ws2.cell(i, 5, round(c.N_kN, 3))
-            ws2.cell(i, 6, "Sim" if c.governing else "")
-    _set_col_widths(ws2, [28, 16, 16, 16, 16, 14])
+    row_n = 2
+    if res:
+        for level, combos in (
+            ("Acções totais", res.all_combinations),
+            ("Esforços no elemento", res.member_forces),
+        ):
+            for c in combos:
+                ws2.cell(row_n, 1, level)
+                ws2.cell(row_n, 2, c.name)
+                ws2.cell(row_n, 3, round(c.V_z_kN, 3))
+                ws2.cell(row_n, 4, round(c.V_y_kN, 3))
+                ws2.cell(row_n, 5, round(c.M_y_kNm, 3))
+                ws2.cell(row_n, 6, round(c.N_kN, 3))
+                ws2.cell(row_n, 7, "Sim" if c.governing else "")
+                row_n += 1
+    _set_col_widths(ws2, [22, 28, 16, 16, 16, 16, 14])
 
     # ── Folha 3: Secção ───────────────────────────────────────────────────────
     ws3 = wb.create_sheet("Secção")
@@ -153,22 +161,30 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
             _kv_row(ws4, None, k, v, n4); n4 += 1
         _set_col_widths(ws4, [35, 25])
 
-    # ── Folha 5: Ancoragens ───────────────────────────────────────────────────
+    # ── Folha 5: Ancoragens / varões ──────────────────────────────────────────
     if res and res.anchor:
-        ws5 = wb.create_sheet("Ancoragens")
         anc = res.anchor
-        n5 = 1
-        for k, v in [
-            ("Nº ancoragens", anc.n_anchors),
+        is_rod = anc.anchor_type == "rod"
+        ws5 = wb.create_sheet("Varões Suspensão" if is_rod else "Ancoragens")
+        rows5 = [
+            ("Tipo de verificação",
+             "Varão roscado de suspensão (sem betão)" if is_rod
+             else "Ancoragem embebida em betão"),
+            ("Nº", anc.n_anchors),
             ("Diâmetro [mm]", anc.anchor_diameter_mm),
-            ("Profundidade hef [mm]", anc.embedment_depth_mm),
+        ]
+        if not is_rod:
+            rows5.append(("Profundidade hef [mm]", anc.embedment_depth_mm))
+        rows5 += [
             ("N_Rd total [kN]", anc.tensile_capacity_kN),
             ("V_Rd total [kN]", anc.shear_capacity_kN),
             ("η_tracção", anc.utilization_tension),
             ("η_corte", anc.utilization_shear),
             ("η_interacção", anc.utilization_combined),
             ("Estado", anc.status.value), ("Cláusula", anc.code_clause),
-        ]:
+        ]
+        n5 = 1
+        for k, v in rows5:
             _kv_row(ws5, None, k, v, n5); n5 += 1
         _set_col_widths(ws5, [35, 25])
 
@@ -240,6 +256,7 @@ def generate_csv(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         "base_plate_pryout_eta": res.base_plate.utilization_pryout if (res and res.base_plate) else "",
         "anchor_d_mm": res.anchor.anchor_diameter_mm if (res and res.anchor) else "",
         "n_anchors": res.anchor.n_anchors if (res and res.anchor) else "",
+        "anchor_type": res.anchor.anchor_type if (res and res.anchor) else "",
         "metal_connection": res.metal_connection.connection_type if (res and res.metal_connection) else "",
         "metal_connection_eta": res.metal_connection.utilization_ratio if (res and res.metal_connection) else "",
         "metal_connection_bolts": (

@@ -27,6 +27,15 @@ class FanUnit(BaseModel):
     speed_rpm: Optional[float] = Field(default=None, ge=0,
         description="Velocidade de rotação [rpm]")
 
+    @model_validator(mode="after")
+    def _check_operating_weight(self) -> "FanUnit":
+        if self.operating_weight_kg < self.weight_kg:
+            raise ValueError(
+                "operating_weight_kg deve ser ≥ weight_kg "
+                f"({self.operating_weight_kg} < {self.weight_kg})"
+            )
+        return self
+
 
 # ── Input principal ────────────────────────────────────────────────────────────
 
@@ -95,6 +104,11 @@ class FanSupportInput(BaseModel):
     # Betão de suporte (para ancoragens)
     concrete_grade: str = Field(default="C25/30",
         description="Classe do betão de fixação. Ex: C25/30, C30/37, fck=25MPa")
+
+    # Política de peso (sfsc.policy): faixa EXTENDED (600–1000 kg) exige
+    # confirmação explícita do utilizador.
+    confirm_extended_range: bool = Field(default=False,
+        description="Confirmação de utilização na faixa 600–1000 kg, fora da faixa do produto")
 
     @model_validator(mode="after")
     def _check_verify_mode(self) -> "FanSupportInput":
@@ -167,11 +181,21 @@ class SteelSection(BaseModel):
         from .units import cm3_to_mm3
         return cm3_to_mm3(self.W_pl_y_cm3)
 
+    @property
+    def W_pl_z_mm3(self) -> float:
+        from .units import cm3_to_mm3
+        return cm3_to_mm3(self.W_pl_z_cm3)
+
 
 # ── Cargas ─────────────────────────────────────────────────────────────────────
 
 class LoadCombination(BaseModel):
-    """Combinação de acções calculada."""
+    """Combinação de acções calculada.
+
+    member_level distingue acções totais (False — output de loads.py) de
+    esforços de cálculo no elemento (True — output dos motores de suporte).
+    Os dois níveis nunca devem ser misturados na mesma tabela (auditoria C-02).
+    """
     name: str
     N_kN:  float = 0.0
     V_y_kN: float = 0.0
@@ -180,6 +204,7 @@ class LoadCombination(BaseModel):
     M_z_kNm: float = 0.0
     T_kNm: float = 0.0
     governing: bool = False
+    member_level: bool = False
     load_factors_used: dict[str, float] = Field(default_factory=dict)
     description: str = ""
 
@@ -192,6 +217,7 @@ class SectionVerificationResult(BaseModel):
     utilization_ratio: float
     utilization_by_check: dict[str, float] = Field(default_factory=dict)
     governing_check: str = ""
+    governing_combination: str = ""
     status: CheckerStatus
     code_clause: str = ""
     warnings: list[str] = Field(default_factory=list)
@@ -236,10 +262,15 @@ class BasePlateResult(BaseModel):
 
 
 class AnchorResult(BaseModel):
-    """Resultado do dimensionamento de ancoragens."""
+    """Resultado do dimensionamento de ancoragens / varões de suspensão.
+
+    anchor_type: "concrete" = ancoragem embebida em betão (hef aplicável);
+                 "rod"      = varão roscado de suspensão (HANGER — sem betão).
+    """
     n_anchors: int
     anchor_diameter_mm: float
     embedment_depth_mm: float
+    anchor_type: str = "concrete"
     tensile_capacity_kN: float
     shear_capacity_kN: float
     utilization_tension: float
@@ -289,9 +320,14 @@ class FanSupportResult(BaseModel):
     seismic_code: SeismicCode
     seismic_factor_g: float
     total_weight_kN: float
+    # Carga vertical ULS total (nível de acções) — auditoria C-02.
     design_load_kN: float
+    # Combinação governante ao nível do ELEMENTO (esforços de cálculo).
     governing_load_combination: Optional[LoadCombination] = None
+    # Combinações de acções totais (output de loads.py, sem transformação).
     all_combinations: list[LoadCombination] = Field(default_factory=list)
+    # Esforços de cálculo no elemento, por combinação (output do motor de suporte).
+    member_forces: list[LoadCombination] = Field(default_factory=list)
     recommended_section: Optional[SteelSection] = None
     section_verification: Optional[SectionVerificationResult] = None
     section_options: list[SectionVerificationResult] = Field(default_factory=list)

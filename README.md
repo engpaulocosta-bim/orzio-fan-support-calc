@@ -47,7 +47,19 @@ The application currently supports:
 - Report generation for PDF calculation memoranda, Excel workbooks, and CSV summary files
 - Classification of results including `PASS`, `FAIL`, `MARGINAL`, and `REQUIRES_SPECIALIST`
 
-The current UI describes the intended operating range as industrial fan supports in the approximate range of `35-600 kg`. Heavier or atypical cases may be flagged for specialist review.
+### Weight scope policy
+
+The supported operating range is governed by a single policy (`src/sfsc/policy.py`), applied consistently in validation, classification, UI, and reports:
+
+| Total operating weight | Behaviour |
+|---|---|
+| < 35 kg | Allowed with warning — result classified `PRELIMINARY` |
+| 35 – 500 kg | Validated product range — `ENGINEERING_ESTIMATE` |
+| 500 – 600 kg | Allowed — result classified `REQUIRES_SPECIALIST` |
+| 600 – 1000 kg | Outside the product range — requires explicit user confirmation; `REQUIRES_SPECIALIST` |
+| > 1000 kg | Blocked (`OutOfScopeError`) |
+
+Any result classified `REQUIRES_SPECIALIST` must be reviewed by a qualified structural engineer before use.
 
 ## Requirements
 

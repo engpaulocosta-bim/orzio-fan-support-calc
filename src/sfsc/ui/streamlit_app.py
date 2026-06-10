@@ -1,6 +1,8 @@
 """Interface Streamlit — SFSC Steel Fan Support Calc."""
 from __future__ import annotations
 import datetime
+import logging
+import os
 import sys
 from pathlib import Path
 
@@ -11,12 +13,20 @@ from sfsc.enums import (
     SupportType, CantileverSubtype, Country, SteelGrade, SectionFamily,
     ExposureClass, AntiVibrationType, OperationMode, FanConnectionType, FanType,
 )
+from pydantic import ValidationError as PydanticValidationError
 from sfsc.models import FanSupportInput, FanUnit
+from sfsc.exceptions import SFSCBaseError
+from sfsc.policy import (
+    WeightBand, weight_band,
+    WEIGHT_MIN_RECOMMENDED_KG, WEIGHT_PRODUCT_MAX_KG, WEIGHT_BLOCK_KG,
+)
 from sfsc.catalogs.seismic_catalog import list_zones
 from sfsc.engines.selector import run_full_calculation, context_for_section_choice
 from sfsc.reports.memorial_pdf import generate_pdf
 from sfsc.reports.exports import generate_excel, generate_csv
 from sfsc.assessment import assess_result
+
+logger = logging.getLogger("sfsc.ui")
 
 
 def main() -> None:
@@ -68,7 +78,8 @@ def main() -> None:
         for i in range(int(n_units)):
             with st.expander(f"Unidade {i+1}", expanded=(i==0)):
                 fan_type   = st.selectbox(f"Tipo [{i+1}]", [e.value for e in FanType], key=f"ft{i}")
-                weight_kg  = st.number_input(f"Peso vazio [kg] [{i+1}]", min_value=1.0, value=120.0, step=5.0, key=f"wv{i}")
+                weight_kg  = st.number_input(f"Peso vazio [kg] (informativo) [{i+1}]", min_value=1.0, value=120.0, step=5.0, key=f"wv{i}",
+                                             help="Apenas registado no memorial — o cálculo usa o peso em operação.")
                 op_weight  = st.number_input(f"Peso operação [kg] [{i+1}]", min_value=1.0, value=130.0, step=5.0, key=f"wo{i}")
                 fl_len     = st.number_input(f"Comprimento base [mm] [{i+1}]", min_value=100.0, value=800.0, step=50.0, key=f"fl{i}")
                 fl_wid     = st.number_input(f"Largura base [mm] [{i+1}]", min_value=100.0, value=600.0, step=50.0, key=f"fw{i}")
@@ -82,6 +93,37 @@ def main() -> None:
                     "footprint_width_mm": fl_wid,
                     "centre_of_gravity_height_mm": cg_h,
                 })
+
+        # ── Política de peso (sfsc.policy) ──
+        total_op_weight = sum(u["operating_weight_kg"] for u in fan_unit_inputs)
+        band = weight_band(total_op_weight)
+        confirm_extended = False
+        if band == WeightBand.BLOCKED:
+            st.error(
+                f"Peso total {total_op_weight:.0f} kg acima do limite de "
+                f"{WEIGHT_BLOCK_KG:.0f} kg — fora do âmbito do SFSC."
+            )
+        elif band == WeightBand.EXTENDED:
+            st.warning(
+                f"Peso total {total_op_weight:.0f} kg fora da faixa do produto "
+                f"(35–{WEIGHT_PRODUCT_MAX_KG:.0f} kg)."
+            )
+            confirm_extended = st.checkbox(
+                f"Confirmo a utilização fora da faixa do produto "
+                f"({WEIGHT_PRODUCT_MAX_KG:.0f}–{WEIGHT_BLOCK_KG:.0f} kg) — "
+                "o resultado exige revisão por engenheiro estrutural qualificado.",
+                value=False,
+            )
+        elif band == WeightBand.SPECIALIST:
+            st.warning(
+                f"Peso total {total_op_weight:.0f} kg > 500 kg — o resultado será "
+                "classificado REQUIRES_SPECIALIST."
+            )
+        elif band == WeightBand.BELOW_MIN:
+            st.info(
+                f"Peso total {total_op_weight:.0f} kg abaixo da faixa validada "
+                f"({WEIGHT_MIN_RECOMMENDED_KG:.0f} kg) — resultado PRELIMINARY."
+            )
 
         # ── Tipo de suporte ──
         st.subheader("3. Tipo de Suporte")
@@ -155,9 +197,11 @@ def main() -> None:
         fan_conn_type = None
         bp_thick_mm   = None
         if include_bp:
-            conn_val = st.selectbox("Tipo de fixação ventilador", [e.value for e in FanConnectionType])
+            conn_val = st.selectbox("Tipo de fixação ventilador (informativo)", [e.value for e in FanConnectionType],
+                                    help="Registado no memorial — não altera o modelo de cálculo da chapa.")
             fan_conn_type = FanConnectionType(conn_val)
-            bp_thick_mm = st.number_input("Espessura chapa [mm] (0 = auto)", min_value=0.0, value=0.0, step=5.0)
+            bp_thick_mm = st.number_input("Espessura chapa [mm] (0 = auto)", min_value=0.0, value=0.0, step=5.0,
+                                          help="0 = dimensionar automaticamente; valor > 0 = a chapa fornecida é verificada (não redimensionada).")
             if bp_thick_mm == 0.0:
                 bp_thick_mm = None
 
@@ -218,6 +262,7 @@ def main() -> None:
                 received_section_family=received_section_family,
                 exposure_class=exposure,
                 concrete_grade=concrete_grade,
+                confirm_extended_range=confirm_extended,
             )
 
             with st.spinner("A calcular…"):
@@ -227,14 +272,33 @@ def main() -> None:
                 if result and result.recommended_section:
                     st.session_state["sfsc_selected_section"] = result.recommended_section.designation
             st.session_state.pop("sfsc_error", None)
+        except (SFSCBaseError, PydanticValidationError) as e:
+            # Erro de domínio/validação: mensagem orientada ao utilizador, sem traceback.
+            st.session_state["sfsc_ctx"] = None
+            st.session_state["sfsc_error"] = e
         except Exception as e:
+            logger.exception("Erro interno no cálculo SFSC")
             st.session_state["sfsc_ctx"] = None
             st.session_state["sfsc_error"] = e
 
     if st.session_state.get("sfsc_error") is not None:
         err = st.session_state["sfsc_error"]
-        st.error(f"**Erro:** {err}")
-        st.exception(err)
+        if isinstance(err, SFSCBaseError):
+            st.error(f"**[{err.code}]** {err.message}")
+        elif isinstance(err, PydanticValidationError):
+            msgs = "\n".join(
+                f"- `{'.'.join(str(p) for p in e['loc'])}`: {e['msg']}"
+                for e in err.errors()
+            )
+            st.error(f"**Input inválido:**\n{msgs}")
+        else:
+            st.error(
+                "**Erro interno do SFSC.** O cálculo não foi concluído. "
+                "Reveja os inputs; se o problema persistir, reporte ao suporte "
+                "indicando os parâmetros usados."
+            )
+        if os.environ.get("SFSC_DEBUG") == "1":
+            st.exception(err)
 
     ctx = st.session_state.get("sfsc_ctx")
     if ctx is not None:
@@ -283,8 +347,15 @@ def main() -> None:
             col_s5.metric("Uso do limite", _fmt_pct(assessment.limit_percent))
 
             assessment_message = f"{assessment.summary} Verificação governante: {assessment.governing_item}."
+            # REQUIRES_SPECIALIST nunca aparece como sucesso (auditoria C-03).
             if assessment.is_failure:
                 st.error(assessment_message)
+            elif assessment.is_specialist:
+                st.error(
+                    f"⚠️ **REQUER ESPECIALISTA** — {assessment_message} "
+                    "Este resultado não pode ser usado sem revisão por engenheiro "
+                    "estrutural qualificado."
+                )
             elif assessment.is_borderline:
                 st.warning(assessment_message)
             else:
@@ -422,17 +493,26 @@ def main() -> None:
                 else:
                     st.info("Mesa não activada neste cálculo.")
 
-            # ── Tab 3: Ancoragens ──────────────────────────────────────────────────
+            # ── Tab 3: Ancoragens / varões ─────────────────────────────────────────
             with tabs[2]:
                 if res.anchor:
                     anc = res.anchor
+                    is_rod = anc.anchor_type == "rod"
+                    st.caption(
+                        "Verificação: varões roscados de suspensão (sem betão)"
+                        if is_rod else "Verificação: ancoragens embebidas em betão"
+                    )
                     c1, c2, c3 = st.columns(3)
-                    c1.metric("Nº ancoragens", str(anc.n_anchors))
+                    c1.metric("Nº varões" if is_rod else "Nº ancoragens", str(anc.n_anchors))
                     c2.metric("Diâmetro", f"Ø{anc.anchor_diameter_mm:.0f} mm")
-                    c3.metric("Profundidade hef", f"{anc.embedment_depth_mm:.0f} mm")
+                    if not is_rod:
+                        c3.metric("Profundidade hef", f"{anc.embedment_depth_mm:.0f} mm")
+                    else:
+                        c3.metric("η interacção", f"{anc.utilization_combined:.3f}")
                     c1.metric("N_Rd total", f"{anc.tensile_capacity_kN:.1f} kN")
                     c2.metric("V_Rd total", f"{anc.shear_capacity_kN:.1f} kN")
-                    c3.metric("η interacção", f"{anc.utilization_combined:.3f}")
+                    if not is_rod:
+                        c3.metric("η interacção", f"{anc.utilization_combined:.3f}")
                     st.caption(f"Cláusula: {anc.code_clause}")
 
             # ── Tab 4: Ligações ────────────────────────────────────────────────────
@@ -485,20 +565,32 @@ def main() -> None:
 
             # ── Tab 5: Combinações ─────────────────────────────────────────────────
             with tabs[4]:
+                import pandas as pd
+
+                def _combo_rows(combos):
+                    return [{
+                        "Combinação": c.name,
+                        "V_z (kN)": round(c.V_z_kN, 3),
+                        "V_y (kN)": round(c.V_y_kN, 3),
+                        "M_y (kNm)": round(c.M_y_kNm, 3),
+                        "M_z (kNm)": round(c.M_z_kNm, 3),
+                        "N (kN)": round(c.N_kN, 3),
+                        "Gov.": "★" if c.governing else "",
+                        "Descrição": c.description,
+                    } for c in combos]
+
                 if res.all_combinations:
-                    import pandas as pd
-                    rows = []
-                    for c in res.all_combinations:
-                        rows.append({
-                            "Combinação": c.name,
-                            "V_z (kN)": round(c.V_z_kN, 3),
-                            "V_y (kN)": round(c.V_y_kN, 3),
-                            "M_y (kNm)": round(c.M_y_kNm, 3),
-                            "N (kN)": round(c.N_kN, 3),
-                            "Gov.": "★" if c.governing else "",
-                            "Descrição": c.description,
-                        })
-                    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+                    st.subheader("Combinações de acções (totais)")
+                    st.dataframe(pd.DataFrame(_combo_rows(res.all_combinations)),
+                                 hide_index=True, width="stretch")
+                if res.member_forces:
+                    st.subheader("Esforços de cálculo no elemento")
+                    st.dataframe(pd.DataFrame(_combo_rows(res.member_forces)),
+                                 hide_index=True, width="stretch")
+                    st.caption(
+                        "As acções totais e os esforços no elemento são níveis "
+                        "diferentes — não comparar directamente entre tabelas."
+                    )
 
             # ── Tab 6: Avisos ──────────────────────────────────────────────────────
             with tabs[5]:
@@ -561,8 +653,13 @@ def main() -> None:
                 )
 
         except Exception as e:
-            st.error(f"**Erro ao apresentar resultados:** {e}")
-            st.exception(e)
+            logger.exception("Erro ao apresentar resultados SFSC")
+            st.error(
+                "**Erro ao apresentar resultados.** Recalcule; se o problema "
+                "persistir, reporte ao suporte."
+            )
+            if os.environ.get("SFSC_DEBUG") == "1":
+                st.exception(e)
 
     elif st.session_state.get("sfsc_error") is None:
         # Estado inicial — guia de uso

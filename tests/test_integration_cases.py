@@ -215,3 +215,15 @@ def test_bracketed_cantilever_reports_diagonal_and_stiffener():
     assert conn.plate_thickness_mm >= 8.0
     assert conn.provided_spacing_mm >= conn.min_spacing_mm
     assert conn.provided_edge_distance_mm >= conn.min_edge_distance_mm
+
+
+# ── Caso 13: Exposição exterior/corrosiva → aviso de protecção ────────────────
+def test_case13_exposure_class_warning():
+    from sfsc.enums import ExposureClass
+    inp = _make_inp(support_tag="CASE-13", exposure_class=ExposureClass.CORROSIVE)
+    ctx = run_full_calculation(inp)
+    assert any(w.code == "W-EXP-001" for w in ctx.warnings)
+
+    inp_dry = _make_inp(support_tag="CASE-13b", exposure_class=ExposureClass.INTERIOR_DRY)
+    ctx_dry = run_full_calculation(inp_dry)
+    assert not any(w.code == "W-EXP-001" for w in ctx_dry.warnings)

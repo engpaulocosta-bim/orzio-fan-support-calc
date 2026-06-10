@@ -118,9 +118,13 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     def fmt_pct(value: float | None) -> str:
         return "n/a" if value is None else f"{value:.1f}%"
 
+    SPECIALIST_BG = (0.95, 0.90, 0.99)   # violeta — REQUER ESPECIALISTA
+
     if assessment:
         if assessment.is_failure:
             assessment_bg = RED_BG
+        elif assessment.is_specialist:
+            assessment_bg = SPECIALIST_BG
         elif assessment.is_borderline:
             assessment_bg = WARN_BG
         else:
@@ -157,6 +161,14 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
             f"{assessment.summary} Verificação governante: <b>{assessment.governing_item}</b>.",
             S_body,
         ))
+        if assessment.is_specialist:
+            story.append(Spacer(1, 2*mm))
+            story.append(Paragraph(
+                "REQUER REVISÃO POR ENGENHEIRO ESTRUTURAL QUALIFICADO — "
+                "este memorial não constitui aprovação do suporte.",
+                ParagraphStyle("specialist", fontName="Helvetica-Bold", fontSize=9,
+                               textColor=_color(CORAL)),
+            ))
         story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -231,27 +243,48 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     # ══════════════════════════════════════════════════════════════════════════
     story.append(Paragraph("4. CARGAS E COMBINAÇÕES DE ACÇÕES", S_h1))
     if res:
-        story.append(kv_table([
+        kv_loads = [
             ("Factor sísmico ag/g", f"{res.seismic_factor_g:.3f}  ({res.seismic_code.value})"),
             ("Peso total G", f"{res.total_weight_kN:.3f} kN"),
-            ("Carga de cálculo (ULS)", f"{res.design_load_kN:.3f} kN"),
-        ]))
+            ("Carga de cálculo ULS (total)", f"{res.design_load_kN:.3f} kN"),
+        ]
+        if res.governing_load_combination:
+            g = res.governing_load_combination
+            kv_loads.append((
+                "Esforço de cálculo no elemento",
+                f"V = {g.V_z_kN:.3f} kN | M = {g.M_y_kNm:.3f} kNm  ({g.name})",
+            ))
+        story.append(kv_table(kv_loads))
+
+        def _combo_rows(combos):
+            return [[
+                c.name,
+                f"{c.V_z_kN:.2f}",
+                f"{c.V_y_kN:.2f}",
+                f"{c.M_y_kNm:.2f}",
+                f"{c.N_kN:.2f}",
+                "★" if c.governing else "",
+            ] for c in combos]
+
+        combo_headers = ["Combinação", "V_z (kN)", "V_y (kN)", "M_y (kNm)", "N (kN)", "Gov."]
+        combo_widths = [48*mm, 22*mm, 22*mm, 22*mm, 22*mm, 14*mm]
+
         if res.all_combinations:
             story.append(Spacer(1, 2*mm))
-            combo_rows = []
-            for c in res.all_combinations:
-                combo_rows.append([
-                    c.name,
-                    f"{c.V_z_kN:.2f}",
-                    f"{c.V_y_kN:.2f}",
-                    f"{c.M_y_kNm:.2f}",
-                    f"{c.N_kN:.2f}",
-                    "★" if c.governing else "",
-                ])
-            story.append(data_table(
-                ["Combinação", "V_z (kN)", "V_y (kN)", "M_y (kNm)", "N (kN)", "Gov."],
-                combo_rows,
-                col_widths=[48*mm, 22*mm, 22*mm, 22*mm, 22*mm, 14*mm],
+            story.append(Paragraph("4.1 Combinações de acções (totais)", S_h2))
+            story.append(data_table(combo_headers, _combo_rows(res.all_combinations),
+                                    col_widths=combo_widths))
+        if res.member_forces:
+            story.append(Spacer(1, 2*mm))
+            story.append(Paragraph(
+                "4.2 Esforços de cálculo no elemento (modelo do tipo de suporte)", S_h2))
+            story.append(data_table(combo_headers, _combo_rows(res.member_forces),
+                                    col_widths=combo_widths))
+            story.append(Paragraph(
+                "Nota: a tabela 4.1 apresenta acções totais; a tabela 4.2 apresenta os "
+                "esforços no elemento dimensionante após o modelo estrutural do suporte. "
+                "Os dois níveis não são directamente comparáveis.",
+                S_note,
             ))
     story.append(Spacer(1, 4*mm))
 
@@ -315,18 +348,28 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     # ══════════════════════════════════════════════════════════════════════════
     # 7. ANCORAGENS
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("7. ANCORAGENS", S_h1))
+    if res and res.anchor and res.anchor.anchor_type == "rod":
+        story.append(Paragraph("7. VARÕES ROSCADOS DE SUSPENSÃO", S_h1))
+    else:
+        story.append(Paragraph("7. ANCORAGENS", S_h1))
     if res and res.anchor:
         anc = res.anchor
-        story.append(kv_table([
-            ("Número de ancoragens", str(anc.n_anchors)),
+        anc_rows = [
+            ("Tipo de verificação",
+             "Varão roscado de suspensão (sem betão)" if anc.anchor_type == "rod"
+             else "Ancoragem embebida em betão"),
+            ("Número", str(anc.n_anchors)),
             ("Diâmetro", f"Ø{anc.anchor_diameter_mm:.0f} mm"),
-            ("Profundidade de embebimento", f"{anc.embedment_depth_mm:.0f} mm"),
+        ]
+        if anc.anchor_type != "rod":
+            anc_rows.append(("Profundidade de embebimento", f"{anc.embedment_depth_mm:.0f} mm"))
+        anc_rows += [
             ("Capacidade de tracção total", f"{anc.tensile_capacity_kN:.2f} kN  (η = {anc.utilization_tension:.3f})"),
             ("Capacidade de corte total", f"{anc.shear_capacity_kN:.2f} kN  (η = {anc.utilization_shear:.3f})"),
             ("Interacção tracção + corte", f"η_comb = {anc.utilization_combined:.3f}"),
             ("Cláusula", anc.code_clause),
-        ]))
+        ]
+        story.append(kv_table(anc_rows))
         story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════════════════════════════════════
