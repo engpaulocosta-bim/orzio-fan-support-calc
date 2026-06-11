@@ -1,4 +1,5 @@
 """Modelos Pydantic v2 — SFSC."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -24,20 +25,23 @@ from .enums import (
 
 # ── Dados do ventilador ────────────────────────────────────────────────────────
 
+
 class FanUnit(BaseModel):
     """Uma unidade de ventilador industrial."""
+
     tag: str = ""
     fan_type: FanType = FanType.CENTRIFUGAL
     weight_kg: float = Field(gt=0, description="Peso vazio [kg]")
     operating_weight_kg: float = Field(gt=0, description="Peso em operação [kg]")
     footprint_length_mm: float = Field(gt=0, description="Comprimento da base [mm]")
-    footprint_width_mm: float  = Field(gt=0, description="Largura da base [mm]")
-    centre_of_gravity_height_mm: float = Field(default=0.0, ge=0,
-        description="Altura do CG acima da base [mm]")
-    rated_power_kw: float | None = Field(default=None, ge=0,
-        description="Potência nominal [kW] — para memorial")
-    speed_rpm: float | None = Field(default=None, ge=0,
-        description="Velocidade de rotação [rpm]")
+    footprint_width_mm: float = Field(gt=0, description="Largura da base [mm]")
+    centre_of_gravity_height_mm: float = Field(
+        default=0.0, ge=0, description="Altura do CG acima da base [mm]"
+    )
+    rated_power_kw: float | None = Field(
+        default=None, ge=0, description="Potência nominal [kW] — para memorial"
+    )
+    speed_rpm: float | None = Field(default=None, ge=0, description="Velocidade de rotação [rpm]")
 
     @model_validator(mode="after")
     def _check_operating_weight(self) -> FanUnit:
@@ -51,14 +55,15 @@ class FanUnit(BaseModel):
 
 # ── Input principal ────────────────────────────────────────────────────────────
 
+
 class FanSupportInput(BaseModel):
     """Entrada completa para cálculo de suporte de ventilador industrial."""
 
     # Identificação
     project_name: str = Field(min_length=1)
-    support_tag: str  = Field(min_length=1, description="Ex: FSU-001")
+    support_tag: str = Field(min_length=1, description="Ex: FSU-001")
     design_notes: str = ""
-    prepared_by: str  = "SFSC v1.0"
+    prepared_by: str = "SFSC v1.0"
 
     # Equipamento
     fan_units: list[FanUnit] = Field(min_length=1)
@@ -70,57 +75,70 @@ class FanSupportInput(BaseModel):
 
     # País e norma
     country: Country = Country.EU_GENERIC
-    seismic_zone: str | None = Field(default=None,
-        description="Zona sísmica local. None = automático por país (conservativo)")
+    seismic_zone: str | None = Field(
+        default=None, description="Zona sísmica local. None = automático por país (conservativo)"
+    )
 
     # Material
     steel_grade: SteelGrade = SteelGrade.S355
     preferred_section_families: list[SectionFamily] = Field(
-        default_factory=lambda: [SectionFamily.HEB, SectionFamily.IPE])
+        default_factory=lambda: [SectionFamily.HEB, SectionFamily.IPE]
+    )
     allow_auto_select: bool = True
 
     # Factor dinâmico (arranque / vibração)
-    dynamic_factor: float = Field(default=1.5, ge=1.0, le=3.0,
-        description="Factor de amplificação dinâmica. Default 1.5 (VDI 3840)")
+    dynamic_factor: float = Field(
+        default=1.5,
+        ge=1.0,
+        le=3.0,
+        description="Factor de amplificação dinâmica. Default 1.5 (VDI 3840)",
+    )
 
     # Geometria
-    installation_height_mm: float = Field(gt=0,
-        description="Altura de instalação — chão/tecto à base do ventilador [mm]")
-    span_mm: float = Field(gt=0,
-        description="Vão / comprimento do braço do suporte [mm]")
-    eccentricity_mm: float = Field(default=0.0, ge=0,
-        description="Excentricidade do CG em relação ao apoio [mm]")
+    installation_height_mm: float = Field(
+        gt=0, description="Altura de instalação — chão/tecto à base do ventilador [mm]"
+    )
+    span_mm: float = Field(gt=0, description="Vão / comprimento do braço do suporte [mm]")
+    eccentricity_mm: float = Field(
+        default=0.0, ge=0, description="Excentricidade do CG em relação ao apoio [mm]"
+    )
 
     # Hanger — comprimento dos varões roscados
-    hanger_rod_length_mm: float | None = Field(default=None, gt=0,
-        description="Comprimento dos varões roscados (HANGER) [mm]")
+    hanger_rod_length_mm: float | None = Field(
+        default=None, gt=0, description="Comprimento dos varões roscados (HANGER) [mm]"
+    )
 
     # Anti-vibração
     anti_vibration: AntiVibrationType = AntiVibrationType.NONE
-    anti_vibration_static_deflection_mm: float | None = Field(default=None, gt=0,
-        description="Deflexão estática das molas [mm] — obrigatório se SPRINGS")
+    anti_vibration_static_deflection_mm: float | None = Field(
+        default=None, gt=0, description="Deflexão estática das molas [mm] — obrigatório se SPRINGS"
+    )
 
     # Mesa / base plate
     include_base_plate: bool = False
     fan_connection_type: FanConnectionType | None = None
-    base_plate_thickness_mm: float | None = Field(default=None, gt=0,
-        description="Espessura da chapa. None = dimensionar automaticamente")
+    base_plate_thickness_mm: float | None = Field(
+        default=None, gt=0, description="Espessura da chapa. None = dimensionar automaticamente"
+    )
 
     # Modo verificar
-    received_section_tag: str | None    = None
+    received_section_tag: str | None = None
     received_section_family: SectionFamily | None = None
 
     # Condições ambientais
     exposure_class: ExposureClass = ExposureClass.INTERIOR_DRY
 
     # Betão de suporte (para ancoragens)
-    concrete_grade: str = Field(default="C25/30",
-        description="Classe do betão de fixação. Ex: C25/30, C30/37, fck=25MPa")
+    concrete_grade: str = Field(
+        default="C25/30", description="Classe do betão de fixação. Ex: C25/30, C30/37, fck=25MPa"
+    )
 
     # Política de peso (sfsc.policy): faixa EXTENDED (600–1000 kg) exige
     # confirmação explícita do utilizador.
-    confirm_extended_range: bool = Field(default=False,
-        description="Confirmação de utilização na faixa 600–1000 kg, fora da faixa do produto")
+    confirm_extended_range: bool = Field(
+        default=False,
+        description="Confirmação de utilização na faixa 600–1000 kg, fora da faixa do produto",
+    )
 
     @model_validator(mode="after")
     def _check_verify_mode(self) -> FanSupportInput:
@@ -144,13 +162,16 @@ class FanSupportInput(BaseModel):
     @property
     def total_weight_kn(self) -> float:
         from .units import kg_to_kn
+
         return kg_to_kn(self.total_operating_weight_kg)
 
 
 # ── Secção metálica ────────────────────────────────────────────────────────────
 
+
 class SteelSection(BaseModel):
     """Secção metálica do catálogo."""
+
     family: SectionFamily
     designation: str
     h_mm: float
@@ -171,35 +192,42 @@ class SteelSection(BaseModel):
     @property
     def A_mm2(self) -> float:
         from .units import cm2_to_mm2
+
         return cm2_to_mm2(self.A_cm2)
 
     @property
     def I_y_mm4(self) -> float:
         from .units import cm4_to_mm4
+
         return cm4_to_mm4(self.I_y_cm4)
 
     @property
     def I_z_mm4(self) -> float:
         from .units import cm4_to_mm4
+
         return cm4_to_mm4(self.I_z_cm4)
 
     @property
     def W_el_y_mm3(self) -> float:
         from .units import cm3_to_mm3
+
         return cm3_to_mm3(self.W_el_y_cm3)
 
     @property
     def W_pl_y_mm3(self) -> float:
         from .units import cm3_to_mm3
+
         return cm3_to_mm3(self.W_pl_y_cm3)
 
     @property
     def W_pl_z_mm3(self) -> float:
         from .units import cm3_to_mm3
+
         return cm3_to_mm3(self.W_pl_z_cm3)
 
 
 # ── Cargas ─────────────────────────────────────────────────────────────────────
+
 
 class LoadCombination(BaseModel):
     """Combinação de acções calculada.
@@ -208,8 +236,9 @@ class LoadCombination(BaseModel):
     esforços de cálculo no elemento (True — output dos motores de suporte).
     Os dois níveis nunca devem ser misturados na mesma tabela (auditoria C-02).
     """
+
     name: str
-    N_kN:  float = 0.0
+    N_kN: float = 0.0
     V_y_kN: float = 0.0
     V_z_kN: float = 0.0
     M_y_kNm: float = 0.0
@@ -223,8 +252,10 @@ class LoadCombination(BaseModel):
 
 # ── Resultados de verificação ──────────────────────────────────────────────────
 
+
 class SectionVerificationResult(BaseModel):
     """Resultado da verificação de uma secção metálica."""
+
     section: SteelSection
     utilization_ratio: float
     utilization_by_check: dict[str, float] = Field(default_factory=dict)
@@ -238,6 +269,7 @@ class SectionVerificationResult(BaseModel):
 
 class BasePlateResult(BaseModel):
     """Resultado do dimensionamento da mesa / chapa de assento."""
+
     length_mm: float
     width_mm: float
     thickness_mm: float
@@ -279,6 +311,7 @@ class AnchorResult(BaseModel):
     anchor_type: "concrete" = ancoragem embebida em betão (hef aplicável);
                  "rod"      = varão roscado de suspensão (HANGER — sem betão).
     """
+
     n_anchors: int
     anchor_diameter_mm: float
     embedment_depth_mm: float
@@ -295,6 +328,7 @@ class AnchorResult(BaseModel):
 
 class MetalConnectionResult(BaseModel):
     """Resultado simplificado das ligações metálicas do suporte."""
+
     connection_type: str
     plate_thickness_mm: float
     bolt_diameter_mm: float
@@ -326,6 +360,7 @@ class MetalConnectionResult(BaseModel):
 
 class FanSupportResult(BaseModel):
     """Resultado completo para um suporte de ventilador."""
+
     support_tag: str
     support_type: SupportType
     structural_code: StructuralCode
@@ -354,6 +389,7 @@ class FanSupportResult(BaseModel):
 
 # ── Contexto do memorial ───────────────────────────────────────────────────────
 
+
 class CitationItem(BaseModel):
     standard_id: str
     edition: str = ""
@@ -364,7 +400,7 @@ class CitationItem(BaseModel):
 
 class WarningItem(BaseModel):
     code: str
-    severity: str = "WARNING"   # INFO, WARNING, CRITICAL
+    severity: str = "WARNING"  # INFO, WARNING, CRITICAL
     message: str
     module: str = ""
     assumption_id: str | None = None
@@ -372,6 +408,7 @@ class WarningItem(BaseModel):
 
 class ReportContext(BaseModel):
     """Contexto completo para geração do memorial de cálculo."""
+
     project_name: str
     support_tag: str
     prepared_by: str = "SFSC v1.0"

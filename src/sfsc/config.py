@@ -1,4 +1,5 @@
 """Configuração global — carregamento de YAMLs com cache."""
+
 from __future__ import annotations
 
 import functools

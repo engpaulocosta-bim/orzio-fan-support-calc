@@ -1,4 +1,5 @@
 """Validação de inputs do sistema SFSC."""
+
 from __future__ import annotations
 
 from .enums import OperationMode, SupportType
@@ -58,11 +59,9 @@ def validate_fan_support_input(inp) -> None:
     if inp.anti_vibration.value == "springs":
         if inp.anti_vibration_static_deflection_mm is None:
             raise MissingInputError(
-                "anti_vibration_static_deflection_mm",
-                "anti-vibração por molas"
+                "anti_vibration_static_deflection_mm", "anti-vibração por molas"
             )
         if inp.anti_vibration_static_deflection_mm <= 0:
             raise ValidationError(
-                "Deflexão estática das molas deve ser > 0 mm",
-                "anti_vibration_static_deflection_mm"
+                "Deflexão estática das molas deve ser > 0 mm", "anti_vibration_static_deflection_mm"
             )

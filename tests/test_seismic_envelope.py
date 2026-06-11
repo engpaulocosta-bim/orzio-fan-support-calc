@@ -18,6 +18,7 @@ Caso de referência (cálculo manual no docstring de cada teste):
       M_sismo  = 1.44354 × 0.8 / 2          = 0.57742 kNm
       M_y      = 0.27066 + 0.57742          = 0.84808 kNm
 """
+
 import pytest
 
 from sfsc.engines.selector import run_full_calculation
@@ -27,14 +28,23 @@ from sfsc.models import FanSupportInput, FanUnit
 
 def _pedestal(country: Country, zone: str) -> FanSupportInput:
     return FanSupportInput(
-        project_name="Seis", support_tag="FSU-S",
-        fan_units=[FanUnit(fan_type=FanType.CENTRIFUGAL, weight_kg=300.0,
-                           operating_weight_kg=320.0,
-                           footprint_length_mm=1000.0, footprint_width_mm=800.0,
-                           centre_of_gravity_height_mm=300.0)],
+        project_name="Seis",
+        support_tag="FSU-S",
+        fan_units=[
+            FanUnit(
+                fan_type=FanType.CENTRIFUGAL,
+                weight_kg=300.0,
+                operating_weight_kg=320.0,
+                footprint_length_mm=1000.0,
+                footprint_width_mm=800.0,
+                centre_of_gravity_height_mm=300.0,
+            )
+        ],
         support_type=SupportType.PEDESTAL,
-        country=country, seismic_zone=zone,
-        installation_height_mm=800.0, span_mm=1200.0,
+        country=country,
+        seismic_zone=zone,
+        installation_height_mm=800.0,
+        span_mm=1200.0,
     )
 
 
@@ -93,10 +103,13 @@ def test_base_plate_uses_total_action_envelope():
       η      = (7.56289/4) / 60.22       = 0.0314   (com P/4 seria 0.0079)
     """
     from sfsc.enums import FanConnectionType
-    inp = _pedestal(Country.CHILE, "3").model_copy(update={
-        "include_base_plate": True,
-        "fan_connection_type": FanConnectionType.DIRECT_FLANGE,
-    })
+
+    inp = _pedestal(Country.CHILE, "3").model_copy(
+        update={
+            "include_base_plate": True,
+            "fan_connection_type": FanConnectionType.DIRECT_FLANGE,
+        }
+    )
     res = run_full_calculation(inp).fan_support_result
     bp = res.base_plate
     assert bp.bolt_utilization_fan == pytest.approx(0.0314, abs=0.0005)
@@ -108,17 +121,28 @@ def test_eccentricity_increases_member_moment():
     e=0:      M = V×L/4 = 0.88061 kNm
     e=100mm:  M = V×L/4 + V×0.1 = 1.17415 kNm
     """
+
     def hanger(ecc):
         return FanSupportInput(
-            project_name="Ecc", support_tag="FSU-E",
-            fan_units=[FanUnit(fan_type=FanType.CENTRIFUGAL, weight_kg=120.0,
-                               operating_weight_kg=130.0,
-                               footprint_length_mm=800.0, footprint_width_mm=600.0)],
+            project_name="Ecc",
+            support_tag="FSU-E",
+            fan_units=[
+                FanUnit(
+                    fan_type=FanType.CENTRIFUGAL,
+                    weight_kg=120.0,
+                    operating_weight_kg=130.0,
+                    footprint_length_mm=800.0,
+                    footprint_width_mm=600.0,
+                )
+            ],
             support_type=SupportType.HANGER,
-            country=Country.PORTUGAL, seismic_zone="1.3",
-            installation_height_mm=500.0, span_mm=1200.0,
+            country=Country.PORTUGAL,
+            seismic_zone="1.3",
+            installation_height_mm=500.0,
+            span_mm=1200.0,
             eccentricity_mm=ecc,
         )
+
     res0 = run_full_calculation(hanger(0.0)).fan_support_result
     res1 = run_full_calculation(hanger(100.0)).fan_support_result
     m0 = next(c for c in res0.member_forces if c.name == "ULS_fundamental").M_y_kNm

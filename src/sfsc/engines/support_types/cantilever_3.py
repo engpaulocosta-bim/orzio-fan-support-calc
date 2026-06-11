@@ -1,4 +1,5 @@
 """CANTILEVER_3 — U invertido (3 lados): dois pilares + viga superior."""
+
 from __future__ import annotations
 
 from ...enums import StructuralCode
@@ -22,7 +23,7 @@ def _member_forces(inp: FanSupportInput, c: LoadCombination) -> LoadCombination:
 
     M_viga_kNm = P_kN * L_m / 4.0 + abs(P_kN) * e_m
     N_pilar_kN = P_kN / 2.0
-    M_pilar_kNm = H_kN * h_m / 2.0   # distribuído entre 2 pilares
+    M_pilar_kNm = H_kN * h_m / 2.0  # distribuído entre 2 pilares
     M_y_kNm = max(M_viga_kNm, M_pilar_kNm)
 
     return LoadCombination(

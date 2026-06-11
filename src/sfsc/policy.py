@@ -13,6 +13,7 @@ Faixas (peso total em operação, soma das unidades):
                                   explícita do utilizador; REQUIRES_SPECIALIST
     > 1000 kg        BLOCKED    — OutOfScopeError
 """
+
 from __future__ import annotations
 
 from enum import Enum
@@ -24,11 +25,11 @@ WEIGHT_BLOCK_KG: float = 1000.0
 
 
 class WeightBand(str, Enum):
-    BELOW_MIN  = "BELOW_MIN"
-    NORMAL     = "NORMAL"
+    BELOW_MIN = "BELOW_MIN"
+    NORMAL = "NORMAL"
     SPECIALIST = "SPECIALIST"
-    EXTENDED   = "EXTENDED"
-    BLOCKED    = "BLOCKED"
+    EXTENDED = "EXTENDED"
+    BLOCKED = "BLOCKED"
 
 
 def weight_band(total_kg: float) -> WeightBand:

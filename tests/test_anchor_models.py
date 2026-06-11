@@ -1,4 +1,5 @@
 """Modelos de ancoragem por tipo de suporte — auditoria C-05/C-06."""
+
 import pytest
 
 from sfsc.engines.selector import run_full_calculation
@@ -8,14 +9,23 @@ from sfsc.models import FanSupportInput, FanUnit
 
 def _inp(**kwargs):
     defaults = dict(
-        project_name="Anc", support_tag="FSU-A",
-        fan_units=[FanUnit(fan_type=FanType.CENTRIFUGAL, weight_kg=120.0,
-                           operating_weight_kg=130.0,
-                           footprint_length_mm=800.0, footprint_width_mm=600.0,
-                           centre_of_gravity_height_mm=300.0)],
+        project_name="Anc",
+        support_tag="FSU-A",
+        fan_units=[
+            FanUnit(
+                fan_type=FanType.CENTRIFUGAL,
+                weight_kg=120.0,
+                operating_weight_kg=130.0,
+                footprint_length_mm=800.0,
+                footprint_width_mm=600.0,
+                centre_of_gravity_height_mm=300.0,
+            )
+        ],
         support_type=SupportType.HANGER,
-        country=Country.PORTUGAL, seismic_zone="1.3",
-        installation_height_mm=500.0, span_mm=1200.0,
+        country=Country.PORTUGAL,
+        seismic_zone="1.3",
+        installation_height_mm=500.0,
+        span_mm=1200.0,
     )
     defaults.update(kwargs)
     return FanSupportInput(**defaults)
@@ -50,12 +60,20 @@ def test_floor_anchor_uplift_from_overturning():
     """
     inp = _inp(
         support_type=SupportType.PEDESTAL,
-        country=Country.CHILE, seismic_zone="3",
-        installation_height_mm=800.0, span_mm=1200.0,
-        fan_units=[FanUnit(fan_type=FanType.CENTRIFUGAL, weight_kg=300.0,
-                           operating_weight_kg=320.0,
-                           footprint_length_mm=1000.0, footprint_width_mm=800.0,
-                           centre_of_gravity_height_mm=300.0)],
+        country=Country.CHILE,
+        seismic_zone="3",
+        installation_height_mm=800.0,
+        span_mm=1200.0,
+        fan_units=[
+            FanUnit(
+                fan_type=FanType.CENTRIFUGAL,
+                weight_kg=300.0,
+                operating_weight_kg=320.0,
+                footprint_length_mm=1000.0,
+                footprint_width_mm=800.0,
+                centre_of_gravity_height_mm=300.0,
+            )
+        ],
     )
     anc = run_full_calculation(inp).fan_support_result.anchor
     assert anc.anchor_type == "concrete"
@@ -65,8 +83,7 @@ def test_floor_anchor_uplift_from_overturning():
 
 def test_floor_anchor_no_seismic_no_tension():
     """Irlanda (ag/g=0.03): derrube não vence o peso próprio → tracção nula + nota."""
-    inp = _inp(support_type=SupportType.PEDESTAL,
-               country=Country.IRELAND, seismic_zone="IE")
+    inp = _inp(support_type=SupportType.PEDESTAL, country=Country.IRELAND, seismic_zone="IE")
     anc = run_full_calculation(inp).fan_support_result.anchor
     assert anc.anchor_type == "concrete"
     assert anc.utilization_tension == 0.0
@@ -78,6 +95,7 @@ def test_wall_cantilever_tension_from_moment():
     encastramento — tem de ser > 0 mesmo sem sismo."""
     inp = _inp(support_type=SupportType.CANTILEVER_1, span_mm=800.0)
     from sfsc.enums import CantileverSubtype
+
     inp = inp.model_copy(update={"cantilever_subtype": CantileverSubtype.PURE})
     anc = run_full_calculation(inp).fan_support_result.anchor
     assert anc.anchor_type == "concrete"

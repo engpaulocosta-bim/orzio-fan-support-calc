@@ -3,6 +3,7 @@
 Caso: 540 kg (>500) → classificação REQUIRES_SPECIALIST. A headline tem de
 ser "REQUER ESPECIALISTA" (nunca verde) na avaliação, no CSV, no Excel e no PDF.
 """
+
 import pytest
 
 from sfsc.assessment import assess_result
@@ -18,13 +19,22 @@ HEADLINE = "REQUER ESPECIALISTA"
 @pytest.fixture(scope="module")
 def specialist_ctx():
     inp = FanSupportInput(
-        project_name="Spec", support_tag="FSU-540",
-        fan_units=[FanUnit(fan_type=FanType.CENTRIFUGAL, weight_kg=520.0,
-                           operating_weight_kg=540.0,
-                           footprint_length_mm=1200.0, footprint_width_mm=900.0)],
+        project_name="Spec",
+        support_tag="FSU-540",
+        fan_units=[
+            FanUnit(
+                fan_type=FanType.CENTRIFUGAL,
+                weight_kg=520.0,
+                operating_weight_kg=540.0,
+                footprint_length_mm=1200.0,
+                footprint_width_mm=900.0,
+            )
+        ],
         support_type=SupportType.HANGER,
-        country=Country.PORTUGAL, seismic_zone="1.3",
-        installation_height_mm=500.0, span_mm=1200.0,
+        country=Country.PORTUGAL,
+        seismic_zone="1.3",
+        installation_height_mm=500.0,
+        span_mm=1200.0,
     )
     return run_full_calculation(inp)
 
@@ -34,7 +44,7 @@ def test_assessment_headline_never_green(specialist_ctx):
     assert res.status == CheckerStatus.PASS  # numericamente passa…
     a = assess_result(res)
     assert a.is_specialist
-    assert a.headline == HEADLINE            # …mas a headline nunca é "PASSA - CONSERVADOR"
+    assert a.headline == HEADLINE  # …mas a headline nunca é "PASSA - CONSERVADOR"
     assert not a.is_conservative
     assert "engenheiro estrutural" in a.summary
 
@@ -49,11 +59,13 @@ def test_excel_summary_contains_specialist_headline(specialist_ctx):
     import io
 
     import openpyxl
+
     wb = openpyxl.load_workbook(io.BytesIO(generate_excel(specialist_ctx)))
     values = [
         str(cell.value)
         for row in wb["Resumo"].iter_rows()
-        for cell in row if cell.value is not None
+        for cell in row
+        if cell.value is not None
     ]
     assert any(HEADLINE in v for v in values)
     assert any("REQUIRES_SPECIALIST" in v for v in values)
@@ -69,6 +81,7 @@ def test_pdf_contains_specialist_headline(specialist_ctx):
 
 def test_ui_banner_shows_specialist():
     from streamlit.testing.v1 import AppTest
+
     app = AppTest.from_file("app.py", default_timeout=60)
     app.run()
     op_weight = [f for f in app.number_input if "Peso operação" in f.label][0]

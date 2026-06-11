@@ -1,4 +1,5 @@
 """HANGER — suporte pendurado em viga (varões roscados + viga de apoio)."""
+
 from __future__ import annotations
 
 from ...enums import StructuralCode

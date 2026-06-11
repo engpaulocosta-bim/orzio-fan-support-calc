@@ -1,4 +1,5 @@
 """Orquestrador principal — run_full_calculation()."""
+
 from __future__ import annotations
 
 import datetime
@@ -45,23 +46,23 @@ from .support_types.pedestal import calc_pedestal
 logger = logging.getLogger("sfsc.selector")
 
 _STRUCTURAL_CODE_MAP: dict[Country, StructuralCode] = {
-    Country.PORTUGAL:   StructuralCode.EC3_EN1993,
-    Country.SPAIN:      StructuralCode.EC3_EN1993,
-    Country.IRELAND:    StructuralCode.EC3_EN1993,
+    Country.PORTUGAL: StructuralCode.EC3_EN1993,
+    Country.SPAIN: StructuralCode.EC3_EN1993,
+    Country.IRELAND: StructuralCode.EC3_EN1993,
     Country.EU_GENERIC: StructuralCode.EC3_EN1993,
-    Country.UK:         StructuralCode.EC3_UK_NA,
-    Country.FRANCE:     StructuralCode.EC3_NF_NA,
-    Country.BRAZIL:     StructuralCode.NBR_8800,
-    Country.CHILE:      StructuralCode.NCH_427,
+    Country.UK: StructuralCode.EC3_UK_NA,
+    Country.FRANCE: StructuralCode.EC3_NF_NA,
+    Country.BRAZIL: StructuralCode.NBR_8800,
+    Country.CHILE: StructuralCode.NCH_427,
 }
 
 _SUPPORT_ENGINES = {
-    SupportType.HANGER:       calc_hanger,
+    SupportType.HANGER: calc_hanger,
     SupportType.CANTILEVER_1: calc_cantilever_1,
     SupportType.CANTILEVER_2: calc_cantilever_2,
     SupportType.CANTILEVER_3: calc_cantilever_3,
-    SupportType.PEDESTAL:     calc_pedestal,
-    SupportType.COMBINED:     calc_combined,
+    SupportType.PEDESTAL: calc_pedestal,
+    SupportType.COMBINED: calc_combined,
 }
 
 
@@ -87,11 +88,13 @@ def context_for_section_choice(ctx: ReportContext, designation: str) -> ReportCo
     if current == chosen.section.designation:
         return ctx
 
-    verify_inp = inp.model_copy(update={
-        "operation_mode": OperationMode.VERIFY,
-        "received_section_family": chosen.section.family,
-        "received_section_tag": chosen.section.designation,
-    })
+    verify_inp = inp.model_copy(
+        update={
+            "operation_mode": OperationMode.VERIFY,
+            "received_section_family": chosen.section.family,
+            "received_section_tag": chosen.section.designation,
+        }
+    )
     selected_ctx = run_full_calculation(verify_inp)
     if selected_ctx.fan_support_result:
         selected_ctx.fan_support_result.section_options = res.section_options
@@ -118,9 +121,9 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
     9. Checker final + classificação
     10. ReportContext com citações normativas
     """
-    citations:   list[CitationItem] = []
-    warn_items:  list[WarningItem]  = []
-    assumptions: list[str]          = []
+    citations: list[CitationItem] = []
+    warn_items: list[WarningItem] = []
+    assumptions: list[str] = []
     recovered_statuses: list[CheckerStatus] = []
 
     # ── 1. Validação ──────────────────────────────────────────────────────────
@@ -129,75 +132,93 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
     w_msg = weight_warning(inp.total_operating_weight_kg)
     if w_msg:
         band = weight_band(inp.total_operating_weight_kg)
-        warn_items.append(WarningItem(
-            code=f"W-WEIGHT-{band.value}",
-            severity="CRITICAL" if band in (WeightBand.SPECIALIST, WeightBand.EXTENDED) else "WARNING",
-            message=w_msg,
-            module="policy",
-        ))
+        warn_items.append(
+            WarningItem(
+                code=f"W-WEIGHT-{band.value}",
+                severity="CRITICAL"
+                if band in (WeightBand.SPECIALIST, WeightBand.EXTENDED)
+                else "WARNING",
+                message=w_msg,
+                module="policy",
+            )
+        )
 
     if inp.exposure_class in (ExposureClass.EXTERIOR, ExposureClass.CORROSIVE):
-        warn_items.append(WarningItem(
-            code="W-EXP-001",
-            severity="WARNING",
-            message=(
-                f"Classe de exposição '{inp.exposure_class.value}': prever protecção "
-                "anticorrosiva adequada (galvanização/pintura ≥ C4; em ambiente "
-                "corrosivo considerar aço inox A4 nas fixações). A protecção não é "
-                "dimensionada por este modelo."
-            ),
-            module="selector",
-        ))
+        warn_items.append(
+            WarningItem(
+                code="W-EXP-001",
+                severity="WARNING",
+                message=(
+                    f"Classe de exposição '{inp.exposure_class.value}': prever protecção "
+                    "anticorrosiva adequada (galvanização/pintura ≥ C4; em ambiente "
+                    "corrosivo considerar aço inox A4 nas fixações). A protecção não é "
+                    "dimensionada por este modelo."
+                ),
+                module="selector",
+            )
+        )
 
     # ── 2. Código e sismo ─────────────────────────────────────────────────────
-    struct_code  = resolve_structural_code(inp.country)
+    struct_code = resolve_structural_code(inp.country)
     seismic_code = get_seismic_code(inp.country)
     ag_g, zone_used = get_seismic_factor(inp.country, inp.seismic_zone)
 
     if inp.seismic_zone is None:
-        warn_items.append(WarningItem(
-            code="W-SEISMIC-001",
-            severity="WARNING",
-            message=(
-                f"Factor sísmico de tabela interna: ag/g = {ag_g} (zona '{zone_used}'). "
-                "Verificar com zonamento sísmico local do projecto."
-            ),
-            module="selector",
-            assumption_id="A-GEN-003",
-        ))
+        warn_items.append(
+            WarningItem(
+                code="W-SEISMIC-001",
+                severity="WARNING",
+                message=(
+                    f"Factor sísmico de tabela interna: ag/g = {ag_g} (zona '{zone_used}'). "
+                    "Verificar com zonamento sísmico local do projecto."
+                ),
+                module="selector",
+                assumption_id="A-GEN-003",
+            )
+        )
     elif zone_used != inp.seismic_zone:
-        warn_items.append(WarningItem(
-            code="W-SEISMIC-002",
-            severity="WARNING",
-            message=(
-                f"Zona sísmica '{inp.seismic_zone}' não encontrada para {inp.country.value} — "
-                f"usada zona default '{zone_used}' (ag/g = {ag_g})."
-            ),
-            module="selector",
-            assumption_id="A-GEN-003",
-        ))
+        warn_items.append(
+            WarningItem(
+                code="W-SEISMIC-002",
+                severity="WARNING",
+                message=(
+                    f"Zona sísmica '{inp.seismic_zone}' não encontrada para {inp.country.value} — "
+                    f"usada zona default '{zone_used}' (ag/g = {ag_g})."
+                ),
+                module="selector",
+                assumption_id="A-GEN-003",
+            )
+        )
     assumptions.append("A-GEN-003")
 
-    citations.append(CitationItem(
-        standard_id=struct_code.value,
-        clause="cl. 6.2 + 6.3",
-        description="Verificação de secções e elementos estruturais",
-    ))
-    citations.append(CitationItem(
-        standard_id=seismic_code.value,
-        clause="Tabela NA — factores sísmicos por zona",
-        description="Factor de aceleração de projecto ag/g",
-    ))
-    citations.append(CitationItem(
-        standard_id="EN1990",
-        clause="cl. 6.4.3.2",
-        description="Combinações de acções ULS fundamental e sísmica",
-    ))
-    citations.append(CitationItem(
-        standard_id="VDI3840",
-        clause="Factor dinâmico 1.5",
-        description="Factor de amplificação dinâmica para ventiladores industriais",
-    ))
+    citations.append(
+        CitationItem(
+            standard_id=struct_code.value,
+            clause="cl. 6.2 + 6.3",
+            description="Verificação de secções e elementos estruturais",
+        )
+    )
+    citations.append(
+        CitationItem(
+            standard_id=seismic_code.value,
+            clause="Tabela NA — factores sísmicos por zona",
+            description="Factor de aceleração de projecto ag/g",
+        )
+    )
+    citations.append(
+        CitationItem(
+            standard_id="EN1990",
+            clause="cl. 6.4.3.2",
+            description="Combinações de acções ULS fundamental e sísmica",
+        )
+    )
+    citations.append(
+        CitationItem(
+            standard_id="VDI3840",
+            clause="Factor dinâmico 1.5",
+            description="Factor de amplificação dinâmica para ventiladores industriais",
+        )
+    )
 
     # ── 3. Cargas (combinações de ACÇÕES totais) ──────────────────────────────
     total_weight_kN, action_combos = calculate_loads(inp, struct_code, ag_g)
@@ -211,7 +232,10 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
     # ── 4. Motor do tipo de suporte (TODAS as combinações → elemento) ─────────
     engine_fn = _SUPPORT_ENGINES[inp.support_type]
     member_combos, Lcr_y_mm, Lcr_z_mm = engine_fn(
-        inp, total_weight_kN, action_combos, struct_code,
+        inp,
+        total_weight_kN,
+        action_combos,
+        struct_code,
     )
     assumptions.append("A-STR-001")
     assumptions.append("A-STR-003")
@@ -229,26 +253,35 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             section = get_section(inp.received_section_family, inp.received_section_tag)
         except DatasetMissingError as exc:
             recovered_statuses.append(CheckerStatus.DATASET_MISSING)
-            warn_items.append(WarningItem(
-                code="W-DATASET-001",
-                severity="CRITICAL",
-                message=(
-                    f"Perfil '{inp.received_section_tag}' não encontrado no catálogo "
-                    f"({exc.message}). Verificação de secção não realizada."
-                ),
-                module="selector",
-            ))
+            warn_items.append(
+                WarningItem(
+                    code="W-DATASET-001",
+                    severity="CRITICAL",
+                    message=(
+                        f"Perfil '{inp.received_section_tag}' não encontrado no catálogo "
+                        f"({exc.message}). Verificação de secção não realizada."
+                    ),
+                    module="selector",
+                )
+            )
         if section is not None:
             sec_result = verify_section_envelope(
-                section, member_combos, struct_code, inp.steel_grade,
-                Lcr_y_mm, Lcr_z_mm,
+                section,
+                member_combos,
+                struct_code,
+                inp.steel_grade,
+                Lcr_y_mm,
+                Lcr_z_mm,
             )
             section_options = [sec_result]
     else:
         section_options = find_passing_sections(
-            member_combos, struct_code, inp.steel_grade,
+            member_combos,
+            struct_code,
+            inp.steel_grade,
             inp.preferred_section_families,
-            Lcr_y_mm, Lcr_z_mm,
+            Lcr_y_mm,
+            Lcr_z_mm,
             max_utilization=1.0,
         )
         if section_options:
@@ -258,27 +291,33 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         else:
             try:
                 section, sec_result = auto_select_section(
-                    member_combos, struct_code, inp.steel_grade,
+                    member_combos,
+                    struct_code,
+                    inp.steel_grade,
                     inp.preferred_section_families,
-                    Lcr_y_mm, Lcr_z_mm,
+                    Lcr_y_mm,
+                    Lcr_z_mm,
                 )
             except OutOfScopeError as exc:
                 recovered_statuses.append(CheckerStatus.OUT_OF_SCOPE)
-                warn_items.append(WarningItem(
-                    code="W-SCOPE-001",
-                    severity="CRITICAL",
-                    message=(
-                        "Nenhum perfil das famílias seleccionadas verifica o envelope "
-                        f"de combinações ({exc.message}). Cálculo marcado OUT_OF_SCOPE — "
-                        "rever geometria, aço ou famílias de perfis."
-                    ),
-                    module="selector",
-                ))
+                warn_items.append(
+                    WarningItem(
+                        code="W-SCOPE-001",
+                        severity="CRITICAL",
+                        message=(
+                            "Nenhum perfil das famílias seleccionadas verifica o envelope "
+                            f"de combinações ({exc.message}). Cálculo marcado OUT_OF_SCOPE — "
+                            "rever geometria, aço ou famílias de perfis."
+                        ),
+                        module="selector",
+                    )
+                )
 
     if sec_result:
         for w in sec_result.warnings:
-            warn_items.append(WarningItem(code="W-SEC", severity="WARNING",
-                                          message=w, module="section_verifier"))
+            warn_items.append(
+                WarningItem(code="W-SEC", severity="WARNING", message=w, module="section_verifier")
+            )
 
     # Combinação governante ao nível do elemento (a que produz o η máximo)
     if sec_result and sec_result.governing_combination:
@@ -293,13 +332,11 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             default=member_combos[0],
         )
     member_combos = [
-        c.model_copy(update={"governing": c.name == governing_member.name})
-        for c in member_combos
+        c.model_copy(update={"governing": c.name == governing_member.name}) for c in member_combos
     ]
     governing_member = next(c for c in member_combos if c.governing)
     action_combos = [
-        c.model_copy(update={"governing": c.name == governing_member.name})
-        for c in action_combos
+        c.model_copy(update={"governing": c.name == governing_member.name}) for c in action_combos
     ]
 
     # ── 6. Mesa — envelope de acções totais (V_z e V_y máximos ULS) ──────────
@@ -312,55 +349,77 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             description="Envelope das combinações ULS totais (mesa/ancoragens)",
         )
         bp_result = calculate_base_plate(
-            inp, section, action_envelope, struct_code, inp.concrete_grade,
+            inp,
+            section,
+            action_envelope,
+            struct_code,
+            inp.concrete_grade,
         )
         assumptions.append("A-BP-001")
         assumptions.append("A-BP-002")
-        citations.append(CitationItem(
-            standard_id="EN1993-1-8",
-            clause="cl. 6.2.5",
-            description="Dimensionamento da chapa de assento (base plate)",
-        ))
+        citations.append(
+            CitationItem(
+                standard_id="EN1993-1-8",
+                clause="cl. 6.2.5",
+                description="Dimensionamento da chapa de assento (base plate)",
+            )
+        )
         for w in bp_result.warnings:
-            warn_items.append(WarningItem(code="W-BP", severity="INFO",
-                                          message=w, module="base_plate"))
+            warn_items.append(
+                WarningItem(code="W-BP", severity="INFO", message=w, module="base_plate")
+            )
 
     # ── 7. Ancoragens / varões — por tipo de suporte ──────────────────────────
     anc_result = calculate_anchor(
-        inp, action_combos, struct_code, inp.concrete_grade, section=section,
+        inp,
+        action_combos,
+        struct_code,
+        inp.concrete_grade,
+        section=section,
     )
     assumptions.append("A-ANC-001")
     if anc_result.anchor_type == "rod":
-        citations.append(CitationItem(
-            standard_id="EN1993-1-8",
-            clause="Tab. 3.4",
-            description="Varões roscados de suspensão — tracção, corte e interacção",
-        ))
+        citations.append(
+            CitationItem(
+                standard_id="EN1993-1-8",
+                clause="Tab. 3.4",
+                description="Varões roscados de suspensão — tracção, corte e interacção",
+            )
+        )
     else:
-        citations.append(CitationItem(
-            standard_id="EN1992-4",
-            clause="cl. 7.2.1 + 7.2.2",
-            description="Dimensionamento de ancoragens — tracção, corte e interacção",
-        ))
+        citations.append(
+            CitationItem(
+                standard_id="EN1992-4",
+                clause="cl. 7.2.1 + 7.2.2",
+                description="Dimensionamento de ancoragens — tracção, corte e interacção",
+            )
+        )
     for w in anc_result.warnings:
-        warn_items.append(WarningItem(code="W-ANC", severity="WARNING",
-                                      message=w, module="anchor"))
+        warn_items.append(WarningItem(code="W-ANC", severity="WARNING", message=w, module="anchor"))
 
     # ── 8. Ligações metálicas ─────────────────────────────────────────────────
     metal_conn_result = None
     if section:
         metal_conn_result = calculate_metal_connection(
-            inp, section, governing_member, struct_code,
+            inp,
+            section,
+            governing_member,
+            struct_code,
         )
         assumptions.append("A-CONN-001")
-        citations.append(CitationItem(
-            standard_id="EN1993-1-8",
-            clause="cl. 3 + 4 + 6",
-            description="Ligações metálicas: parafusos, soldaduras, chapas, stiffeners e diagonais",
-        ))
+        citations.append(
+            CitationItem(
+                standard_id="EN1993-1-8",
+                clause="cl. 3 + 4 + 6",
+                description="Ligações metálicas: parafusos, soldaduras, chapas, stiffeners e diagonais",
+            )
+        )
         for w in metal_conn_result.warnings:
-            warn_items.append(WarningItem(code="W-CONN", severity="WARNING",
-                                          message=w, module="metal_connections"))
+            warn_items.append(
+                WarningItem(
+                    code="W-CONN", severity="WARNING", message=w, module="metal_connections"
+                )
+            )
 
     # ── 9. Checker + classificação ────────────────────────────────────────────
     fan_result = FanSupportResult(
@@ -387,24 +446,28 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
     fan_result.classification_level = classify(inp, fan_result)
 
     if fan_result.classification_level.value == "REQUIRES_SPECIALIST":
-        warn_items.append(WarningItem(
-            code="W-CLASS-001",
-            severity="CRITICAL",
-            message=(
-                "Classificação REQUIRES_SPECIALIST: "
-                "este cálculo requer revisão por engenheiro estrutural qualificado."
-            ),
-            module="checker",
-        ))
+        warn_items.append(
+            WarningItem(
+                code="W-CLASS-001",
+                severity="CRITICAL",
+                message=(
+                    "Classificação REQUIRES_SPECIALIST: "
+                    "este cálculo requer revisão por engenheiro estrutural qualificado."
+                ),
+                module="checker",
+            )
+        )
 
     if inp.anti_vibration.value in ("springs", "silentblocks"):
         assumptions.append("A-VIB-001")
-        warn_items.append(WarningItem(
-            code="W-VIB-001",
-            severity="WARNING",
-            message="Anti-vibração: dimensionamento dinâmico das molas/silentblocks fora do âmbito (A-VIB-001).",
-            module="selector",
-        ))
+        warn_items.append(
+            WarningItem(
+                code="W-VIB-001",
+                severity="WARNING",
+                message="Anti-vibração: dimensionamento dinâmico das molas/silentblocks fora do âmbito (A-VIB-001).",
+                module="selector",
+            )
+        )
 
     assumptions.append("A-FAT-001")
 
@@ -433,7 +496,9 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
 
     logger.info(
         "Cálculo completo: %s | %s | status=%s | classification=%s",
-        inp.support_tag, inp.support_type.value,
-        fan_result.status.value, fan_result.classification_level.value,
+        inp.support_tag,
+        inp.support_type.value,
+        fan_result.status.value,
+        fan_result.classification_level.value,
     )
     return ctx

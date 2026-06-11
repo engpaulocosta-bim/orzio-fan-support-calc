@@ -1,4 +1,5 @@
 """PEDESTAL — mesa com 2 patins longitudinais (perfis tipo patim)."""
+
 from __future__ import annotations
 
 from ...enums import StructuralCode
@@ -16,7 +17,7 @@ def _member_forces(inp: FanSupportInput, c: LoadCombination) -> LoadCombination:
         M_y = M_patim + M_sismo
         V por patim = V_z / 4
     """
-    L_m = mm_to_m(inp.span_mm)                 # comprimento dos patins
+    L_m = mm_to_m(inp.span_mm)  # comprimento dos patins
     h_m = mm_to_m(inp.installation_height_mm)  # altura dos pés
     e_m = mm_to_m(inp.eccentricity_mm)
     P_kN = c.V_z_kN

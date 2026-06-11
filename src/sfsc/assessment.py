@@ -1,4 +1,5 @@
 """Engineering interpretation helpers for calculation results."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -53,9 +54,7 @@ def get_governing_utilization(result: FanSupportResult) -> tuple[str, float | No
             result.anchor.utilization_shear,
             result.anchor.utilization_combined,
         )
-        anchor_label = (
-            "Varões de suspensão" if result.anchor.anchor_type == "rod" else "Ancoragens"
-        )
+        anchor_label = "Varões de suspensão" if result.anchor.anchor_type == "rod" else "Ancoragens"
         checks.append((anchor_label, anchor_eta))
 
     if result.metal_connection:
@@ -86,9 +85,8 @@ def assess_result(result: FanSupportResult) -> ResultAssessment:
         or result.status == CheckerStatus.REQUIRES_SPECIALIST
     )
     is_failure = result.status == CheckerStatus.FAIL or (eta is not None and eta > 1.0)
-    is_borderline = (
-        result.status == CheckerStatus.MARGINAL
-        or (eta is not None and 0.90 < eta <= 1.0)
+    is_borderline = result.status == CheckerStatus.MARGINAL or (
+        eta is not None and 0.90 < eta <= 1.0
     )
     is_conservative = (
         result.status == CheckerStatus.PASS

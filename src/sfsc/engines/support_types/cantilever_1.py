@@ -1,4 +1,5 @@
 """CANTILEVER_1 — consola simples engastada num lado (mão-francesa)."""
+
 from __future__ import annotations
 
 import math

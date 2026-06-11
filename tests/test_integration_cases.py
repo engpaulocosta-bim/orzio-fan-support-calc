@@ -1,4 +1,5 @@
 """Casos de integração E2E — input → run_full_calculation → ReportContext."""
+
 from sfsc.engines.selector import context_for_section_choice, run_full_calculation
 from sfsc.enums import (
     AntiVibrationType,
@@ -18,9 +19,15 @@ def _make_inp(**kwargs):
     defaults = dict(
         project_name="IntegTest",
         support_tag="FSU-IT",
-        fan_units=[FanUnit(fan_type=FanType.CENTRIFUGAL, weight_kg=120.0,
-                           operating_weight_kg=130.0, footprint_length_mm=800.0,
-                           footprint_width_mm=600.0)],
+        fan_units=[
+            FanUnit(
+                fan_type=FanType.CENTRIFUGAL,
+                weight_kg=120.0,
+                operating_weight_kg=130.0,
+                footprint_length_mm=800.0,
+                footprint_width_mm=600.0,
+            )
+        ],
         support_type=SupportType.HANGER,
         country=Country.PORTUGAL,
         seismic_zone="1.3",
@@ -84,15 +91,22 @@ def test_case4_pedestal_brazil():
         seismic_zone="II",
         steel_grade=SteelGrade.A36,
         span_mm=1000.0,
-        fan_units=[FanUnit(fan_type=FanType.CENTRIFUGAL, weight_kg=280.0,
-                           operating_weight_kg=300.0, footprint_length_mm=1000.0,
-                           footprint_width_mm=800.0)],
+        fan_units=[
+            FanUnit(
+                fan_type=FanType.CENTRIFUGAL,
+                weight_kg=280.0,
+                operating_weight_kg=300.0,
+                footprint_length_mm=1000.0,
+                footprint_width_mm=800.0,
+            )
+        ],
     )
     ctx = run_full_calculation(inp)
     res = ctx.fan_support_result
     assert res is not None
     # Brasil → NBR_8800
     from sfsc.enums import StructuralCode
+
     assert res.structural_code == StructuralCode.NBR_8800
 
 
@@ -129,9 +143,15 @@ def test_case6_combined_chile():
         country=Country.CHILE,
         seismic_zone="2",
         span_mm=1500.0,
-        fan_units=[FanUnit(fan_type=FanType.AXIAL, weight_kg=200.0,
-                           operating_weight_kg=210.0, footprint_length_mm=900.0,
-                           footprint_width_mm=700.0)],
+        fan_units=[
+            FanUnit(
+                fan_type=FanType.AXIAL,
+                weight_kg=200.0,
+                operating_weight_kg=210.0,
+                footprint_length_mm=900.0,
+                footprint_width_mm=700.0,
+            )
+        ],
     )
     ctx = run_full_calculation(inp)
     assert ctx.fan_support_result is not None
@@ -146,12 +166,19 @@ def test_case7_heavy_fan_requires_specialist():
         support_type=SupportType.CANTILEVER_3,
         span_mm=2000.0,
         installation_height_mm=1000.0,
-        fan_units=[FanUnit(fan_type=FanType.CENTRIFUGAL, weight_kg=520.0,
-                           operating_weight_kg=540.0, footprint_length_mm=1500.0,
-                           footprint_width_mm=1200.0)],
+        fan_units=[
+            FanUnit(
+                fan_type=FanType.CENTRIFUGAL,
+                weight_kg=520.0,
+                operating_weight_kg=540.0,
+                footprint_length_mm=1500.0,
+                footprint_width_mm=1200.0,
+            )
+        ],
     )
     ctx = run_full_calculation(inp)
     from sfsc.enums import ClassificationLevel
+
     assert ctx.fan_support_result.classification_level == ClassificationLevel.REQUIRES_SPECIALIST
 
 
@@ -175,6 +202,7 @@ def test_case9_cantilever2_uk():
     )
     ctx = run_full_calculation(inp)
     from sfsc.enums import StructuralCode
+
     assert ctx.fan_support_result.structural_code == StructuralCode.EC3_UK_NA
 
 
@@ -225,6 +253,7 @@ def test_bracketed_cantilever_reports_diagonal_and_stiffener():
 # ── Caso 13: Exposição exterior/corrosiva → aviso de protecção ────────────────
 def test_case13_exposure_class_warning():
     from sfsc.enums import ExposureClass
+
     inp = _make_inp(support_tag="CASE-13", exposure_class=ExposureClass.CORROSIVE)
     ctx = run_full_calculation(inp)
     assert any(w.code == "W-EXP-001" for w in ctx.warnings)

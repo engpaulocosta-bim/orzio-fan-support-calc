@@ -3,6 +3,7 @@
 Cobre as prioridades F2.4 da auditoria (ramo FAIL de anchor.py, validators a
 ramos completos, dados de catálogo malformados → erro explícito).
 """
+
 from types import SimpleNamespace
 
 import pytest
@@ -28,19 +29,29 @@ from sfsc.validators import validate_fan_support_input
 
 def _inp(**kwargs):
     defaults = dict(
-        project_name="Rob", support_tag="FSU-R",
-        fan_units=[FanUnit(fan_type=FanType.CENTRIFUGAL, weight_kg=120.0,
-                           operating_weight_kg=130.0,
-                           footprint_length_mm=800.0, footprint_width_mm=600.0)],
+        project_name="Rob",
+        support_tag="FSU-R",
+        fan_units=[
+            FanUnit(
+                fan_type=FanType.CENTRIFUGAL,
+                weight_kg=120.0,
+                operating_weight_kg=130.0,
+                footprint_length_mm=800.0,
+                footprint_width_mm=600.0,
+            )
+        ],
         support_type=SupportType.HANGER,
-        country=Country.PORTUGAL, seismic_zone="1.3",
-        installation_height_mm=500.0, span_mm=1200.0,
+        country=Country.PORTUGAL,
+        seismic_zone="1.3",
+        installation_height_mm=500.0,
+        span_mm=1200.0,
     )
     defaults.update(kwargs)
     return FanSupportInput(**defaults)
 
 
 # ── Anchor: ramo de falha ──────────────────────────────────────────────────────
+
 
 def test_anchor_fail_branch_when_demand_exceeds_max():
     """Demanda absurda (3000 kN) excede Ø30×8 (F_t,Rd = 0.9×800×551.5/1.25
@@ -60,6 +71,7 @@ def test_anchor_fail_branch_when_demand_exceeds_max():
 
 # ── Validators: ramos defensivos ───────────────────────────────────────────────
 
+
 def test_validator_empty_fan_units():
     fake = SimpleNamespace(fan_units=[])
     with pytest.raises(MissingInputError):
@@ -67,8 +79,7 @@ def test_validator_empty_fan_units():
 
 
 def test_validator_zero_total_weight():
-    fake = SimpleNamespace(
-        fan_units=[SimpleNamespace(operating_weight_kg=0.0)])
+    fake = SimpleNamespace(fan_units=[SimpleNamespace(operating_weight_kg=0.0)])
     with pytest.raises(ValidationError):
         validate_fan_support_input(fake)
 
@@ -80,22 +91,24 @@ def test_validator_cantilever1_requires_subtype():
 
 
 def test_validator_springs_require_deflection():
-    inp = _inp(anti_vibration=AntiVibrationType.SPRINGS,
-               anti_vibration_static_deflection_mm=None)
+    inp = _inp(anti_vibration=AntiVibrationType.SPRINGS, anti_vibration_static_deflection_mm=None)
     with pytest.raises(MissingInputError):
         validate_fan_support_input(inp)
 
 
 def test_validator_valid_input_passes():
-    validate_fan_support_input(_inp(
-        support_type=SupportType.CANTILEVER_1,
-        cantilever_subtype=CantileverSubtype.PURE,
-        anti_vibration=AntiVibrationType.SPRINGS,
-        anti_vibration_static_deflection_mm=25.0,
-    ))
+    validate_fan_support_input(
+        _inp(
+            support_type=SupportType.CANTILEVER_1,
+            cantilever_subtype=CantileverSubtype.PURE,
+            anti_vibration=AntiVibrationType.SPRINGS,
+            anti_vibration_static_deflection_mm=25.0,
+        )
+    )
 
 
 # ── Catálogos YAML malformados → erro explícito ────────────────────────────────
+
 
 @pytest.fixture
 def _clear_catalog_caches():
@@ -120,19 +133,15 @@ def test_section_catalog_missing_field_raises(monkeypatch, _clear_catalog_caches
 
 def test_seismic_zone_missing_ag_g_raises(monkeypatch):
     """Zona sem ag_g (ou inválido) → SeismicDataMissingError, não KeyError."""
-    bad = {"countries": {"PT": {"default_zone": "X",
-                                "zones": {"X": {"description": "sem ag_g"}}}}}
-    monkeypatch.setattr(
-        "sfsc.catalogs.seismic_catalog.get_seismic_zones", lambda: bad)
+    bad = {"countries": {"PT": {"default_zone": "X", "zones": {"X": {"description": "sem ag_g"}}}}}
+    monkeypatch.setattr("sfsc.catalogs.seismic_catalog.get_seismic_zones", lambda: bad)
     with pytest.raises(SeismicDataMissingError):
         seismic_catalog.get_seismic_factor(Country.PORTUGAL, "X")
 
 
 def test_seismic_zone_negative_ag_g_raises(monkeypatch):
-    bad = {"countries": {"PT": {"default_zone": "X",
-                                "zones": {"X": {"ag_g": -0.1}}}}}
-    monkeypatch.setattr(
-        "sfsc.catalogs.seismic_catalog.get_seismic_zones", lambda: bad)
+    bad = {"countries": {"PT": {"default_zone": "X", "zones": {"X": {"ag_g": -0.1}}}}}
+    monkeypatch.setattr("sfsc.catalogs.seismic_catalog.get_seismic_zones", lambda: bad)
     with pytest.raises(SeismicDataMissingError):
         seismic_catalog.get_seismic_factor(Country.PORTUGAL, "X")
 

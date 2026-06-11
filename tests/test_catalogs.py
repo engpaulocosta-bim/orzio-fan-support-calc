@@ -1,4 +1,5 @@
 """Testes dos catálogos de perfis, aços e sísmico."""
+
 import pytest
 
 from sfsc.catalogs.seismic_catalog import get_seismic_factor, list_zones

@@ -1,4 +1,5 @@
 """Fixtures partilhadas para os testes SFSC."""
+
 import base64
 import re
 import sys

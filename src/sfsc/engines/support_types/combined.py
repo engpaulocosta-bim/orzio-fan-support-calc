@@ -1,4 +1,5 @@
 """COMBINED — mesa (pedestal) + pendurais anti-vibração."""
+
 from __future__ import annotations
 
 from ...enums import AntiVibrationType, StructuralCode
@@ -34,7 +35,7 @@ def _member_forces(inp: FanSupportInput, c: LoadCombination) -> LoadCombination:
             "n_hangers": _N_HANGERS,
         },
         description=(
-            f"Combined (mesa+pendurais) — {int(_FACTOR_MESA*100)}% carga na mesa "
+            f"Combined (mesa+pendurais) — {int(_FACTOR_MESA * 100)}% carga na mesa "
             f"F_pendural={F_hanger_kN:.2f} kN/tirante"
         ),
     )
@@ -42,8 +43,7 @@ def _member_forces(inp: FanSupportInput, c: LoadCombination) -> LoadCombination:
     if inp.anti_vibration == AntiVibrationType.SPRINGS:
         defl = inp.anti_vibration_static_deflection_mm or 25.0
         combo.description += (
-            f" | Molas: δ_estático={defl:.1f} mm "
-            f"(dim. dinâmica fora do âmbito — A-VIB-001)"
+            f" | Molas: δ_estático={defl:.1f} mm (dim. dinâmica fora do âmbito — A-VIB-001)"
         )
     return combo
 

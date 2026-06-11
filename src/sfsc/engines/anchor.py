@@ -39,6 +39,7 @@ Consolas em parede (CANTILEVER_1, CANTILEVER_2) — chumbadores em betão:
 Verificações de betão (apenas anchor_type="concrete"): pull-out por
 aderência com hef = max(8d, 100 mm) — modelo simplificado, ver A-ANC-001.
 """
+
 from __future__ import annotations
 
 import math
@@ -48,20 +49,23 @@ from ..models import AnchorResult, FanSupportInput, LoadCombination, SteelSectio
 from ..units import mm_to_m
 
 _FCK: dict[str, float] = {
-    "C20/25": 20.0, "C25/30": 25.0, "C30/37": 30.0,
-    "C35/45": 35.0, "C40/50": 40.0,
+    "C20/25": 20.0,
+    "C25/30": 25.0,
+    "C30/37": 30.0,
+    "C35/45": 35.0,
+    "C40/50": 40.0,
 }
 
 # Tensão de cedência e rotura de varões roscados [MPa]
 _ROD_GRADES: dict[str, tuple[float, float]] = {
     "5.8": (400.0, 500.0),
     "8.8": (640.0, 800.0),
-    "10.9":(900.0, 1000.0),
+    "10.9": (900.0, 1000.0),
     "A4-70": (450.0, 700.0),  # inox AISI 316
 }
 
 _FLOOR_TYPES = (SupportType.PEDESTAL, SupportType.COMBINED, SupportType.CANTILEVER_3)
-_WALL_TYPES  = (SupportType.CANTILEVER_1, SupportType.CANTILEVER_2)
+_WALL_TYPES = (SupportType.CANTILEVER_1, SupportType.CANTILEVER_2)
 
 _GAMMA_M2 = 1.25
 _DIAMETERS = [12.0, 16.0, 20.0, 24.0, 30.0]

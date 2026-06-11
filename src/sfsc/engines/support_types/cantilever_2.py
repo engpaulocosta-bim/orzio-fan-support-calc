@@ -1,4 +1,5 @@
 """CANTILEVER_2 — consolas simétricas dos dois lados."""
+
 from __future__ import annotations
 
 from ...enums import StructuralCode
@@ -15,7 +16,7 @@ def _member_forces(inp: FanSupportInput, c: LoadCombination) -> LoadCombination:
         M_y = max(M_braço, M_central)
         M_z = max((V_y/2) × L_braço, V_y × L / 8)   (acção horizontal)
     """
-    L_m = mm_to_m(inp.span_mm)   # vão total entre apoios externos
+    L_m = mm_to_m(inp.span_mm)  # vão total entre apoios externos
     L_arm = L_m / 2.0
     e_m = mm_to_m(inp.eccentricity_mm)
     P_kN = c.V_z_kN
@@ -29,7 +30,7 @@ def _member_forces(inp: FanSupportInput, c: LoadCombination) -> LoadCombination:
     return LoadCombination(
         name=c.name,
         N_kN=0.0,
-        V_z_kN=P_kN / 2.0,   # cada braço recebe metade
+        V_z_kN=P_kN / 2.0,  # cada braço recebe metade
         V_y_kN=c.V_y_kN / 2.0,
         M_y_kNm=M_y_kNm,
         M_z_kNm=M_z_kNm,

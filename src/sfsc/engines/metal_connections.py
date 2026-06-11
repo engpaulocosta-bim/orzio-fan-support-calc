@@ -1,4 +1,5 @@
 """Simplified steel connection checks for support assemblies."""
+
 from __future__ import annotations
 
 import math
@@ -50,7 +51,9 @@ def calculate_metal_connection(
     weld_length_mm = _weld_length(inp, section)
     weld_throat_mm = _weld_throat(inp, plate_thickness_mm, V_Ed_kN, weld_length_mm, spec.fu_mpa)
     weld_capacity_kN = _weld_capacity(weld_throat_mm, weld_length_mm, spec.fu_mpa, spec.gamma_M2)
-    weld_utilization = (V_Ed_kN + 0.3 * N_Ed_kN) / weld_capacity_kN if weld_capacity_kN > 0 else 99.0
+    weld_utilization = (
+        (V_Ed_kN + 0.3 * N_Ed_kN) / weld_capacity_kN if weld_capacity_kN > 0 else 99.0
+    )
 
     stiffener_required = _needs_stiffener(inp, combination, section)
     stiffener_thickness_mm = max(8.0, plate_thickness_mm) if stiffener_required else 0.0
@@ -62,7 +65,9 @@ def calculate_metal_connection(
     if not edge_ok:
         warnings.append("Bordo livre dos parafusos perfil-perfil inferior ao minimo simplificado.")
     if stiffener_required:
-        warnings.append("Stiffeners recomendados no no principal devido a momento/concentracao de carga.")
+        warnings.append(
+            "Stiffeners recomendados no no principal devido a momento/concentracao de carga."
+        )
     if weld_utilization > 1.0:
         warnings.append("Soldadura principal insuficiente no modelo simplificado.")
 
@@ -179,7 +184,9 @@ def _weld_capacity(a_mm: float, length_mm: float, fu_mpa: float, gamma_M2: float
     return a_mm * length_mm * f_vwd / 1000.0
 
 
-def _needs_stiffener(inp: FanSupportInput, combination: LoadCombination, section: SteelSection) -> bool:
+def _needs_stiffener(
+    inp: FanSupportInput, combination: LoadCombination, section: SteelSection
+) -> bool:
     if inp.support_type in (SupportType.CANTILEVER_1, SupportType.CANTILEVER_3):
         return abs(combination.M_y_kNm) > 0.5
     if inp.support_type in (SupportType.PEDESTAL, SupportType.COMBINED):
@@ -196,7 +203,10 @@ def _cleat_angle(inp: FanSupportInput, section: SteelSection) -> str:
 
 
 def _diagonal_member(inp: FanSupportInput, section: SteelSection) -> str:
-    if inp.support_type == SupportType.CANTILEVER_1 and inp.cantilever_subtype == CantileverSubtype.BRACKETED:
+    if (
+        inp.support_type == SupportType.CANTILEVER_1
+        and inp.cantilever_subtype == CantileverSubtype.BRACKETED
+    ):
         return f"RHS{max(40, int(section.b_mm / 2))}x{max(40, int(section.b_mm / 2))}x4"
     if inp.support_type == SupportType.COMBINED:
         return f"RHS{max(40, int(section.b_mm / 2))}x{max(30, int(section.b_mm / 3))}x4"

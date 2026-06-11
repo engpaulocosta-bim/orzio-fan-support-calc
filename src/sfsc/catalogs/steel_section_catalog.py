@@ -1,4 +1,5 @@
 """Catálogo de secções metálicas — HEA, HEB, IPE, UPN, RHS."""
+
 from __future__ import annotations
 
 import functools
@@ -48,8 +49,13 @@ def find_minimum_section(
 
 def get_available_families() -> list[SectionFamily]:
     available = []
-    for fam in [SectionFamily.HEA, SectionFamily.HEB, SectionFamily.IPE,
-                SectionFamily.UPN, SectionFamily.RHS]:
+    for fam in [
+        SectionFamily.HEA,
+        SectionFamily.HEB,
+        SectionFamily.IPE,
+        SectionFamily.UPN,
+        SectionFamily.RHS,
+    ]:
         try:
             secs = _load_family(fam)
             if secs:

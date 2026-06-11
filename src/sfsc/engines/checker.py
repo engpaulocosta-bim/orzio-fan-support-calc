@@ -1,4 +1,5 @@
 """Verificação final e classificação do resultado."""
+
 from __future__ import annotations
 
 from ..enums import CheckerStatus, ClassificationLevel
@@ -60,8 +61,11 @@ def classify(inp: FanSupportInput, result: FanSupportResult) -> ClassificationLe
 
     # COMBINED com molas → vibração fora do âmbito
     from ..enums import AntiVibrationType, SupportType
-    if (result.support_type == SupportType.COMBINED and
-            inp.anti_vibration == AntiVibrationType.SPRINGS):
+
+    if (
+        result.support_type == SupportType.COMBINED
+        and inp.anti_vibration == AntiVibrationType.SPRINGS
+    ):
         return ClassificationLevel.REQUIRES_SPECIALIST
 
     # Abaixo do mínimo validado → resultado preliminar
