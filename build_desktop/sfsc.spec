@@ -9,20 +9,38 @@ Output:
     dist/SFSC.exe
 """
 from pathlib import Path
-import site
+import importlib.util
+import sys
+import sysconfig
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 
 ROOT = Path(SPECPATH).parent
+BUILD_DIR = ROOT / "build_desktop"
 SRC_DIR = ROOT / "src"
 DATA_DIR = ROOT / "data"
 ICON_PATH = ROOT / "build_desktop" / "sfsc.ico"
+VERSION_FILE = ROOT / "build_desktop" / "version_info.txt"
 
-SITE_PKGS = Path(site.getsitepackages()[0])
-PY311_PKGS = Path("C:/Users/Paulo Costa/AppData/Local/Programs/Python/Python311/Lib/site-packages")
-if PY311_PKGS.exists():
-    SITE_PKGS = PY311_PKGS
+sys.path.insert(0, str(BUILD_DIR))
+from make_version_file import write_version_file
+
+
+def package_dir(package_name):
+    spec = importlib.util.find_spec(package_name)
+    if spec is None or not spec.submodule_search_locations:
+        purelib = sysconfig.get_paths().get("purelib", "<unknown>")
+        raise SystemExit(
+            f"Required package '{package_name}' was not found. "
+            f"Install build dependencies first, e.g. pip install -r requirements-build.txt. "
+            f"Resolved purelib: {purelib}"
+        )
+    return Path(next(iter(spec.submodule_search_locations))).resolve()
+
+
+STREAMLIT_DIR = package_dir("streamlit")
+write_version_file(ROOT, VERSION_FILE)
 
 datas = [
     (str(SRC_DIR / "sfsc"), "sfsc"),
@@ -32,11 +50,12 @@ datas = [
     (str(ROOT / "standards_registry.yaml"), "."),
     (str(ROOT / "assumptions.yaml"), "."),
     (str(DATA_DIR / "catalogs"), "data/catalogs"),
-    (str(SITE_PKGS / "streamlit"), "streamlit"),
+    (str(STREAMLIT_DIR), "streamlit"),
 ]
 
-if (SITE_PKGS / "altair").exists():
-    datas.append((str(SITE_PKGS / "altair"), "altair"))
+altair_spec = importlib.util.find_spec("altair")
+if altair_spec is not None and altair_spec.submodule_search_locations:
+    datas.append((str(Path(next(iter(altair_spec.submodule_search_locations))).resolve()), "altair"))
 
 datas += collect_data_files("webview")
 datas += copy_metadata("streamlit")
@@ -153,5 +172,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(ICON_PATH),
-    version_file=None,
+    version_file=str(VERSION_FILE),
 )

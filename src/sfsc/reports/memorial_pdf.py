@@ -35,12 +35,13 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     """Gera memorial PDF e retorna bytes. Escreve ficheiro se output_path fornecido."""
     try:
         from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+        from reportlab.lib.enums import TA_CENTER
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.units import mm
         from reportlab.platypus import (
-            HRFlowable,
+            CondPageBreak,
+            KeepTogether,
             PageBreak,
             Paragraph,
             SimpleDocTemplate,
@@ -57,8 +58,8 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
         pagesize=A4,
         leftMargin=20 * mm,
         rightMargin=20 * mm,
-        topMargin=25 * mm,
-        bottomMargin=25 * mm,
+        topMargin=24 * mm,
+        bottomMargin=24 * mm,
     )
 
     W = A4[0] - 40 * mm
@@ -66,9 +67,6 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     def _color(rgb):
         return colors.Color(*rgb)
 
-    S_title = ParagraphStyle(
-        "title", fontName="Helvetica-Bold", fontSize=16, textColor=_color(BLUE), spaceAfter=4
-    )
     S_h1 = ParagraphStyle(
         "h1",
         fontName="Helvetica-Bold",
@@ -90,18 +88,6 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
         "note", fontName="Helvetica-Oblique", fontSize=8, textColor=_color(GREY), leading=11
     )
     S_center = ParagraphStyle("center", fontName="Helvetica", fontSize=9, alignment=TA_CENTER)
-    S_right = ParagraphStyle(
-        "right", fontName="Helvetica", fontSize=8, alignment=TA_RIGHT, textColor=_color(GREY)
-    )
-
-    def hr():
-        return HRFlowable(
-            width="100%",
-            thickness=0.5,
-            color=_color((0.8, 0.85, 0.92)),
-            spaceAfter=4,
-            spaceBefore=4,
-        )
 
     def kv_table(rows: list[tuple[str, str]], col_w=(70 * mm, None)) -> Table:
         cw = [col_w[0], W - col_w[0]]
@@ -142,6 +128,9 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
         )
         return t
 
+    def section_heading(text: str, min_height=34 * mm) -> list:
+        return [CondPageBreak(min_height), Paragraph(text, S_h1)]
+
     story = []
 
     inp = ctx.fan_support_input
@@ -169,23 +158,26 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     S_cover_title = ParagraphStyle(
         "cover_title",
         fontName="Helvetica-Bold",
-        fontSize=24,
+        fontSize=22,
+        leading=26,
         textColor=_color(BLUE),
         alignment=TA_CENTER,
-        spaceAfter=6,
+        spaceAfter=8,
     )
     S_cover_sub = ParagraphStyle(
         "cover_sub",
         fontName="Helvetica",
         fontSize=12,
+        leading=15,
         textColor=_color(GREY),
         alignment=TA_CENTER,
     )
-    story.append(Spacer(1, 45 * mm))
+    story.append(Spacer(1, 50 * mm))
     story.append(Paragraph("MEMORIAL DE CÁLCULO", S_cover_title))
+    story.append(Spacer(1, 2 * mm))
     story.append(Paragraph("Suporte metálico para ventilador industrial", S_cover_sub))
     story.append(Paragraph(f"SFSC — Steel Fan Support Calc v{__version__}", S_cover_sub))
-    story.append(Spacer(1, 18 * mm))
+    story.append(Spacer(1, 16 * mm))
     cover_rows = [
         ("Projecto", ctx.project_name),
         ("Tag do suporte", ctx.support_tag),
@@ -236,18 +228,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # CABEÇALHO
     # ══════════════════════════════════════════════════════════════════════════
-    header_data = [
-        [
-            Paragraph("<b>SFSC</b> — Steel Fan Support Calc", S_title),
-            Paragraph(f"Rev. {ctx.revision} &nbsp;|&nbsp; {ctx.date}", S_right),
-        ]
-    ]
-    ht = Table(header_data, colWidths=[W * 0.70, W * 0.30])
-    ht.setStyle(
-        TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("TOPPADDING", (0, 0), (-1, -1), 0)])
-    )
-    story.append(ht)
-    story.append(hr())
+    story.append(Spacer(1, 2 * mm))
 
     SPECIALIST_BG = (0.95, 0.90, 0.99)  # violeta — REQUER ESPECIALISTA
 
@@ -314,7 +295,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 1. IDENTIFICAÇÃO
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("1. IDENTIFICAÇÃO", S_h1))
+    story.extend(section_heading("1. IDENTIFICAÇÃO", 42 * mm))
     rows_id = [
         ("Projecto", inp.project_name if inp else "—"),
         ("Tag do suporte", inp.support_tag if inp else "—"),
@@ -335,7 +316,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 2. VENTILADOR
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("2. DADOS DO VENTILADOR", S_h1))
+    story.extend(section_heading("2. DADOS DO VENTILADOR", 34 * mm))
     if inp and inp.fan_units:
         total_w = inp.total_operating_weight_kg
         fan_rows = []
@@ -368,7 +349,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 3. GEOMETRIA E CONFIGURAÇÃO
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("3. GEOMETRIA E CONFIGURAÇÃO", S_h1))
+    story.extend(section_heading("3. GEOMETRIA E CONFIGURAÇÃO", 48 * mm))
     if inp:
         rows_geo = [
             ("Tipo de suporte", inp.support_type.value.replace("_", " ").title()),
@@ -491,6 +472,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
             )
         )
         if sv.calculation_details:
+            story.append(CondPageBreak(72 * mm))
             story.append(Spacer(1, 2 * mm))
             story.append(
                 Paragraph(
@@ -568,7 +550,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # 6. MESA / BASE PLATE (se activada)
     # ══════════════════════════════════════════════════════════════════════════
     if res and res.base_plate:
-        story.append(Paragraph("6. MESA / CHAPA DE ASSENTO", S_h1))
+        story.extend(section_heading("6. MESA / CHAPA DE ASSENTO", 76 * mm))
         bp = res.base_plate
         story.append(
             kv_table(
@@ -625,7 +607,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     if res and res.anchor and res.anchor.anchor_type == "rod":
         story.append(Paragraph("7. VARÕES ROSCADOS DE SUSPENSÃO", S_h1))
     else:
-        story.append(Paragraph("7. ANCORAGENS", S_h1))
+        story.extend(section_heading("7. ANCORAGENS", 56 * mm))
     if res and res.anchor:
         anc = res.anchor
         anc_rows = [
@@ -659,7 +641,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # 8. LIGAÇÕES METÁLICAS
     # ══════════════════════════════════════════════════════════════════════════
     if res and res.metal_connection:
-        story.append(Paragraph("8. LIGAÇÕES METÁLICAS", S_h1))
+        story.extend(section_heading("8. LIGAÇÕES METÁLICAS", 62 * mm))
         mc = res.metal_connection
         story.append(
             kv_table(
@@ -700,7 +682,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 9. VERIFICAÇÃO FINAL
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("9. VERIFICAÇÃO FINAL", S_h1))
+    story.extend(section_heading("9. VERIFICAÇÃO FINAL", 52 * mm))
     if res and assessment:
         status_val = res.status.value
         bg = RED_BG if assessment.is_failure else WARN_BG if assessment.is_borderline else GREEN_BG
@@ -753,7 +735,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 10. CITAÇÕES NORMATIVAS
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("10. CITAÇÕES NORMATIVAS", S_h1))
+    story.extend(section_heading("10. CITAÇÕES NORMATIVAS", 60 * mm))
     if ctx.citations:
         cit_rows = [
             [c.standard_id, c.edition or "—", c.clause or "—", c.description or "—"]
@@ -771,7 +753,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 11. LIMITAÇÕES E PRESSUPOSTOS
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("11. LIMITAÇÕES E PRESSUPOSTOS", S_h1))
+    story.extend(section_heading("11. LIMITAÇÕES E PRESSUPOSTOS", 54 * mm))
     if ctx.assumptions_declared:
         from ..config import get_assumptions
 
@@ -793,7 +775,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # 12. AVISOS
     # ══════════════════════════════════════════════════════════════════════════
     if ctx.warnings:
-        story.append(Paragraph("12. AVISOS", S_h1))
+        story.extend(section_heading("12. AVISOS", 40 * mm))
         for w in ctx.warnings:
             sev = w.severity.upper()
             color_map = {"CRITICAL": CORAL, "WARNING": (0.8, 0.5, 0.0), "INFO": GREY}
@@ -809,7 +791,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 13. RASTREABILIDADE DE DADOS E VERSÃO
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("13. RASTREABILIDADE DE DADOS E VERSÃO", S_h1))
+    story.extend(section_heading("13. RASTREABILIDADE DE DADOS E VERSÃO", 70 * mm))
     story.append(
         kv_table(
             [
@@ -844,7 +826,8 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 14. ASSINATURAS
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("14. ASSINATURAS", S_h1))
+    story.append(CondPageBreak(72 * mm))
+    signature_block = [Paragraph("14. ASSINATURAS", S_h1)]
     sig_rows = [
         [
             Paragraph("<b>Função</b>", S_center),
@@ -871,56 +854,64 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
             ]
         )
     )
-    story.append(sig)
-    story.append(
+    signature_block.append(sig)
+    signature_block.append(
         Paragraph(
             "A verificação por engenheiro estrutural qualificado é obrigatória antes "
             "de qualquer uso em projecto ou construção.",
             S_note,
         )
     )
+    story.append(KeepTogether(signature_block))
 
     # ══════════════════════════════════════════════════════════════════════════
     # FOOTER
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Spacer(1, 8 * mm))
-    story.append(hr())
-    story.append(
-        Paragraph(
-            "RESTRICTED TO QUALIFIED STRUCTURAL ENGINEERS — "
-            "ENGINEERING ESTIMATE ONLY — NOT FOR CONSTRUCTION WITHOUT SPECIALIST REVIEW",
-            ParagraphStyle(
-                "footer",
-                fontName="Helvetica-Bold",
-                fontSize=7,
-                textColor=_color(CORAL),
-                alignment=TA_CENTER,
-            ),
-        )
-    )
-    story.append(
-        Paragraph(
-            f"SFSC v{__version__}  |  {ctx.prepared_by}  |  {ctx.date}  |  dados {combined_hash}",
-            ParagraphStyle(
-                "footer2",
-                fontName="Helvetica",
-                fontSize=7,
-                textColor=_color(GREY),
-                alignment=TA_CENTER,
-            ),
-        )
-    )
-
     def _decorate_page(canvas, _doc) -> None:
-        if not is_preliminary:
-            return
         canvas.saveState()
-        canvas.setFont("Helvetica-Bold", 52)
-        canvas.setFillColor(colors.Color(0.95, 0.55, 0.50, alpha=0.18))
-        canvas.translate(A4[0] / 2, A4[1] / 2)
-        canvas.rotate(45)
-        canvas.drawCentredString(0, 60, "PRELIMINAR")
-        canvas.drawCentredString(0, -10, "NÃO APROVADO")
+        page_num = canvas.getPageNumber()
+        left = doc.leftMargin
+        right = A4[0] - doc.rightMargin
+        top_y = A4[1] - 13 * mm
+        bottom_y = 13 * mm
+
+        if page_num > 1:
+            canvas.setStrokeColor(colors.Color(0.80, 0.85, 0.92))
+            canvas.setLineWidth(0.45)
+            canvas.line(left, top_y - 4 * mm, right, top_y - 4 * mm)
+            canvas.setFont("Helvetica-Bold", 8.5)
+            canvas.setFillColor(_color(BLUE))
+            canvas.drawString(left, top_y, "SFSC - Steel Fan Support Calc")
+            canvas.setFont("Helvetica", 7.5)
+            canvas.setFillColor(_color(GREY))
+            canvas.drawRightString(
+                right,
+                top_y,
+                f"{ctx.project_name} | {ctx.support_tag} | Rev. {ctx.revision} | {ctx.date}",
+            )
+
+        canvas.setStrokeColor(colors.Color(0.80, 0.85, 0.92))
+        canvas.setLineWidth(0.35)
+        canvas.line(left, bottom_y + 4 * mm, right, bottom_y + 4 * mm)
+        canvas.setFont("Helvetica-Bold", 6.7)
+        canvas.setFillColor(_color(CORAL))
+        canvas.drawCentredString(
+            A4[0] / 2,
+            bottom_y + 1.5 * mm,
+            "ENGINEERING ESTIMATE ONLY - NOT FOR CONSTRUCTION WITHOUT SPECIALIST REVIEW",
+        )
+        canvas.setFont("Helvetica", 6.7)
+        canvas.setFillColor(_color(GREY))
+        canvas.drawString(left, bottom_y - 2.2 * mm, f"SFSC v{__version__} | dados {combined_hash}")
+        canvas.drawRightString(right, bottom_y - 2.2 * mm, f"Pag. {page_num}")
+
+        if is_preliminary:
+            canvas.setFont("Helvetica-Bold", 42)
+            canvas.setFillColor(colors.Color(0.95, 0.55, 0.50, alpha=0.075))
+            canvas.translate(A4[0] / 2, A4[1] / 2)
+            canvas.rotate(45)
+            canvas.drawCentredString(0, 24, "PRELIMINAR")
+            canvas.drawCentredString(0, -32, "NAO APROVADO")
         canvas.restoreState()
 
     doc.build(story, onFirstPage=_decorate_page, onLaterPages=_decorate_page)

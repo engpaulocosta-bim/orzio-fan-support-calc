@@ -361,6 +361,29 @@ class MetalConnectionResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class QuantityEstimate(BaseModel):
+    """Budget quantities estimate.
+
+    This is not a cut list; it is an early quantity take-off for pricing and
+    integration workflows.
+    """
+
+    estimate_note: str = (
+        "Estimativa para orcamentacao - nao e lista de corte nem substitui levantamento de fabrico."
+    )
+    structural_steel_length_m: float = 0.0
+    structural_steel_mass_kg: float = 0.0
+    plate_mass_kg: float = 0.0
+    total_steel_mass_kg: float = 0.0
+    anchor_count: int = 0
+    anchor_diameter_mm: float = 0.0
+    anchor_embedment_or_length_mm: float = 0.0
+    anchor_type: str = ""
+    weld_length_mm: float = 0.0
+    weld_throat_mm: float = 0.0
+    line_items: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class FanSupportResult(BaseModel):
     """Resultado completo para um suporte de ventilador."""
 
@@ -384,6 +407,7 @@ class FanSupportResult(BaseModel):
     base_plate: BasePlateResult | None = None
     anchor: AnchorResult | None = None
     metal_connection: MetalConnectionResult | None = None
+    quantities: QuantityEstimate | None = None
     classification_level: ClassificationLevel = ClassificationLevel.ENGINEERING_ESTIMATE
     status: CheckerStatus = CheckerStatus.PASS
     warnings: list[str] = Field(default_factory=list)
