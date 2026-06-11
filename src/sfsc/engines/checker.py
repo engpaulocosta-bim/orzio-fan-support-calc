@@ -1,7 +1,8 @@
 """Verificação final e classificação do resultado."""
 from __future__ import annotations
-from ..models import FanSupportInput, FanSupportResult
+
 from ..enums import CheckerStatus, ClassificationLevel
+from ..models import FanSupportInput, FanSupportResult
 from ..policy import WeightBand, weight_band
 
 _PRIORITY = [
@@ -58,7 +59,7 @@ def classify(inp: FanSupportInput, result: FanSupportResult) -> ClassificationLe
         return ClassificationLevel.REQUIRES_SPECIALIST
 
     # COMBINED com molas → vibração fora do âmbito
-    from ..enums import SupportType, AntiVibrationType
+    from ..enums import AntiVibrationType, SupportType
     if (result.support_type == SupportType.COMBINED and
             inp.anti_vibration == AntiVibrationType.SPRINGS):
         return ClassificationLevel.REQUIRES_SPECIALIST

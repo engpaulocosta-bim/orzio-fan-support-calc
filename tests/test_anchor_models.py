@@ -1,8 +1,9 @@
 """Modelos de ancoragem por tipo de suporte — auditoria C-05/C-06."""
 import pytest
-from sfsc.enums import SupportType, Country, FanType
-from sfsc.models import FanSupportInput, FanUnit
+
 from sfsc.engines.selector import run_full_calculation
+from sfsc.enums import Country, FanType, SupportType
+from sfsc.models import FanSupportInput, FanUnit
 
 
 def _inp(**kwargs):

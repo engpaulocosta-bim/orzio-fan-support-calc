@@ -1,8 +1,10 @@
 """Catálogo de graus de aço estrutural."""
 from __future__ import annotations
+
 from dataclasses import dataclass
-from ..enums import SteelGrade, StructuralCode
+
 from ..config import get_steel_grades_config
+from ..enums import SteelGrade
 from ..exceptions import SteelGradeNotFoundError
 
 

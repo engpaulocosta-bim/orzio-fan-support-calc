@@ -1,14 +1,26 @@
 """Modelos Pydantic v2 — SFSC."""
 from __future__ import annotations
-from typing import Any, Optional
-from pydantic import BaseModel, Field, model_validator
-from .enums import (
-    SupportType, CantileverSubtype, Country, StructuralCode, SeismicCode,
-    SteelGrade, SectionFamily, ExposureClass, AntiVibrationType,
-    OperationMode, ClassificationLevel, CheckerStatus,
-    FanConnectionType, FanType,
-)
 
+from typing import Any
+
+from pydantic import BaseModel, Field, model_validator
+
+from .enums import (
+    AntiVibrationType,
+    CantileverSubtype,
+    CheckerStatus,
+    ClassificationLevel,
+    Country,
+    ExposureClass,
+    FanConnectionType,
+    FanType,
+    OperationMode,
+    SectionFamily,
+    SeismicCode,
+    SteelGrade,
+    StructuralCode,
+    SupportType,
+)
 
 # ── Dados do ventilador ────────────────────────────────────────────────────────
 
@@ -22,13 +34,13 @@ class FanUnit(BaseModel):
     footprint_width_mm: float  = Field(gt=0, description="Largura da base [mm]")
     centre_of_gravity_height_mm: float = Field(default=0.0, ge=0,
         description="Altura do CG acima da base [mm]")
-    rated_power_kw: Optional[float] = Field(default=None, ge=0,
+    rated_power_kw: float | None = Field(default=None, ge=0,
         description="Potência nominal [kW] — para memorial")
-    speed_rpm: Optional[float] = Field(default=None, ge=0,
+    speed_rpm: float | None = Field(default=None, ge=0,
         description="Velocidade de rotação [rpm]")
 
     @model_validator(mode="after")
-    def _check_operating_weight(self) -> "FanUnit":
+    def _check_operating_weight(self) -> FanUnit:
         if self.operating_weight_kg < self.weight_kg:
             raise ValueError(
                 "operating_weight_kg deve ser ≥ weight_kg "
@@ -53,12 +65,12 @@ class FanSupportInput(BaseModel):
 
     # Tipo de suporte e modo
     support_type: SupportType
-    cantilever_subtype: Optional[CantileverSubtype] = None
+    cantilever_subtype: CantileverSubtype | None = None
     operation_mode: OperationMode = OperationMode.DIMENSION
 
     # País e norma
     country: Country = Country.EU_GENERIC
-    seismic_zone: Optional[str] = Field(default=None,
+    seismic_zone: str | None = Field(default=None,
         description="Zona sísmica local. None = automático por país (conservativo)")
 
     # Material
@@ -80,23 +92,23 @@ class FanSupportInput(BaseModel):
         description="Excentricidade do CG em relação ao apoio [mm]")
 
     # Hanger — comprimento dos varões roscados
-    hanger_rod_length_mm: Optional[float] = Field(default=None, gt=0,
+    hanger_rod_length_mm: float | None = Field(default=None, gt=0,
         description="Comprimento dos varões roscados (HANGER) [mm]")
 
     # Anti-vibração
     anti_vibration: AntiVibrationType = AntiVibrationType.NONE
-    anti_vibration_static_deflection_mm: Optional[float] = Field(default=None, gt=0,
+    anti_vibration_static_deflection_mm: float | None = Field(default=None, gt=0,
         description="Deflexão estática das molas [mm] — obrigatório se SPRINGS")
 
     # Mesa / base plate
     include_base_plate: bool = False
-    fan_connection_type: Optional[FanConnectionType] = None
-    base_plate_thickness_mm: Optional[float] = Field(default=None, gt=0,
+    fan_connection_type: FanConnectionType | None = None
+    base_plate_thickness_mm: float | None = Field(default=None, gt=0,
         description="Espessura da chapa. None = dimensionar automaticamente")
 
     # Modo verificar
-    received_section_tag: Optional[str]    = None
-    received_section_family: Optional[SectionFamily] = None
+    received_section_tag: str | None    = None
+    received_section_family: SectionFamily | None = None
 
     # Condições ambientais
     exposure_class: ExposureClass = ExposureClass.INTERIOR_DRY
@@ -111,7 +123,7 @@ class FanSupportInput(BaseModel):
         description="Confirmação de utilização na faixa 600–1000 kg, fora da faixa do produto")
 
     @model_validator(mode="after")
-    def _check_verify_mode(self) -> "FanSupportInput":
+    def _check_verify_mode(self) -> FanSupportInput:
         if self.operation_mode == OperationMode.VERIFY:
             if not self.received_section_tag:
                 raise ValueError("received_section_tag obrigatório em modo VERIFY")
@@ -120,7 +132,7 @@ class FanSupportInput(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _check_base_plate(self) -> "FanSupportInput":
+    def _check_base_plate(self) -> FanSupportInput:
         if self.include_base_plate and self.fan_connection_type is None:
             raise ValueError("fan_connection_type obrigatório quando include_base_plate=True")
         return self
@@ -323,17 +335,17 @@ class FanSupportResult(BaseModel):
     # Carga vertical ULS total (nível de acções) — auditoria C-02.
     design_load_kN: float
     # Combinação governante ao nível do ELEMENTO (esforços de cálculo).
-    governing_load_combination: Optional[LoadCombination] = None
+    governing_load_combination: LoadCombination | None = None
     # Combinações de acções totais (output de loads.py, sem transformação).
     all_combinations: list[LoadCombination] = Field(default_factory=list)
     # Esforços de cálculo no elemento, por combinação (output do motor de suporte).
     member_forces: list[LoadCombination] = Field(default_factory=list)
-    recommended_section: Optional[SteelSection] = None
-    section_verification: Optional[SectionVerificationResult] = None
+    recommended_section: SteelSection | None = None
+    section_verification: SectionVerificationResult | None = None
     section_options: list[SectionVerificationResult] = Field(default_factory=list)
-    base_plate: Optional[BasePlateResult] = None
-    anchor: Optional[AnchorResult] = None
-    metal_connection: Optional[MetalConnectionResult] = None
+    base_plate: BasePlateResult | None = None
+    anchor: AnchorResult | None = None
+    metal_connection: MetalConnectionResult | None = None
     classification_level: ClassificationLevel = ClassificationLevel.ENGINEERING_ESTIMATE
     status: CheckerStatus = CheckerStatus.PASS
     warnings: list[str] = Field(default_factory=list)
@@ -347,7 +359,7 @@ class CitationItem(BaseModel):
     edition: str = ""
     clause: str = ""
     description: str = ""
-    equation_used: Optional[str] = None
+    equation_used: str | None = None
 
 
 class WarningItem(BaseModel):
@@ -355,7 +367,7 @@ class WarningItem(BaseModel):
     severity: str = "WARNING"   # INFO, WARNING, CRITICAL
     message: str
     module: str = ""
-    assumption_id: Optional[str] = None
+    assumption_id: str | None = None
 
 
 class ReportContext(BaseModel):
@@ -366,8 +378,8 @@ class ReportContext(BaseModel):
     date: str = ""
     revision: str = "A"
 
-    fan_support_input: Optional[FanSupportInput] = None
-    fan_support_result: Optional[FanSupportResult] = None
+    fan_support_input: FanSupportInput | None = None
+    fan_support_result: FanSupportResult | None = None
 
     citations: list[CitationItem] = Field(default_factory=list)
     warnings: list[WarningItem] = Field(default_factory=list)
@@ -380,9 +392,9 @@ class BatchRowResult(BaseModel):
     row_index: int
     support_tag: str
     status: str
-    governing_issue: Optional[str] = None
+    governing_issue: str | None = None
     dataset_missing: list[str] = Field(default_factory=list)
     out_of_scope: list[str] = Field(default_factory=list)
     warnings_count: int = 0
-    error_message: Optional[str] = None
-    report_context: Optional[ReportContext] = None
+    error_message: str | None = None
+    report_context: ReportContext | None = None

@@ -1,11 +1,13 @@
 """Verificação de secções metálicas — EC3 EN 1993-1-1 / NBR 8800 / NCh427."""
 from __future__ import annotations
-import math
+
 import logging
-from ..models import SteelSection, LoadCombination, SectionVerificationResult
-from ..enums import SteelGrade, StructuralCode, CheckerStatus, SectionFamily
-from ..catalogs.steel_grade_catalog import get_grade_spec, design_strength
+import math
+
+from ..catalogs.steel_grade_catalog import get_grade_spec
 from ..catalogs.steel_section_catalog import list_sections
+from ..enums import CheckerStatus, SectionFamily, SteelGrade, StructuralCode
+from ..models import LoadCombination, SectionVerificationResult, SteelSection
 
 logger = logging.getLogger("sfsc.section_verifier")
 
@@ -84,7 +86,6 @@ def verify_section(
         # M_cr = C1 * (π²EI_z/(Lcr²)) * sqrt(I_w/I_z + Lcr²*G*I_t/(π²*E*I_z))
         # Simplificação: usar curva de encurvadura lateral EC3 com lambda_LT
         I_z_mm4 = section.I_z_mm4
-        I_y_mm4 = section.I_y_mm4
         # I_w (empenamento) ≈ I_z*(h-tf)²/4 para perfis em I
         h_eff_mm = section.h_mm - section.tf_mm
         I_w_mm6  = I_z_mm4 * (h_eff_mm**2) / 4.0
@@ -97,8 +98,6 @@ def verify_section(
             E_mpa * I_z_mm4 * G_mpa * I_t_mm4 +
             (math.pi * E_mpa / Lcr_mm)**2 * I_z_mm4 * I_w_mm6
         )
-        Mcr_kNm = Mcr_Nmm / 1e6
-
         W_pl_y_mm3 = section.W_pl_y_mm3
         lambda_LT = math.sqrt(W_pl_y_mm3 * fy_mpa / Mcr_Nmm) if Mcr_Nmm > 0 else 2.0
 

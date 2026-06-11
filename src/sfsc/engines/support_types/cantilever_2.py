@@ -1,7 +1,8 @@
 """CANTILEVER_2 — consolas simétricas dos dois lados."""
 from __future__ import annotations
-from ...models import FanSupportInput, LoadCombination
+
 from ...enums import StructuralCode
+from ...models import FanSupportInput, LoadCombination
 from ...units import mm_to_m
 
 

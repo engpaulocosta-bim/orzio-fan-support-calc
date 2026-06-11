@@ -1,9 +1,11 @@
 """Motor de cargas — combinações de acções EC1/EC8/NBR/NCh."""
 from __future__ import annotations
+
 import logging
+
+from ..enums import StructuralCode
 from ..models import FanSupportInput, LoadCombination
-from ..enums import Country, StructuralCode
-from ..units import kg_to_kn, G_GRAVITY
+from ..units import kg_to_kn
 
 logger = logging.getLogger("sfsc.loads")
 

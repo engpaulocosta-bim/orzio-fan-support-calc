@@ -1,7 +1,8 @@
 """PEDESTAL — mesa com 2 patins longitudinais (perfis tipo patim)."""
 from __future__ import annotations
-from ...models import FanSupportInput, LoadCombination
+
 from ...enums import StructuralCode
+from ...models import FanSupportInput, LoadCombination
 from ...units import mm_to_m
 
 

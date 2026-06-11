@@ -1,6 +1,7 @@
 """Conversões de unidades — domínio estrutural."""
 from __future__ import annotations
 
+
 # ── Força ──────────────────────────────────────────────────────────────────────
 def kn_to_n(kn: float) -> float:   return kn * 1_000.0
 def n_to_kn(n: float)  -> float:   return n  / 1_000.0

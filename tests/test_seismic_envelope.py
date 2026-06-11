@@ -19,9 +19,10 @@ Caso de referência (cálculo manual no docstring de cada teste):
       M_y      = 0.27066 + 0.57742          = 0.84808 kNm
 """
 import pytest
-from sfsc.enums import SupportType, Country, FanType
-from sfsc.models import FanSupportInput, FanUnit
+
 from sfsc.engines.selector import run_full_calculation
+from sfsc.enums import Country, FanType, SupportType
+from sfsc.models import FanSupportInput, FanUnit
 
 
 def _pedestal(country: Country, zone: str) -> FanSupportInput:

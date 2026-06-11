@@ -1,0 +1,17 @@
+{
+  "expected": {
+    "design_load_kN": 2.935,
+    "governing_combination": "ULS_fundamental",
+    "section": "IPE80",
+    "utilization_ratio": 0.1491,
+    "governing_check": "ltb",
+    "status": "PASS",
+    "classification": "ENGINEERING_ESTIMATE",
+    "anchor_type": "rod"
+  },
+  "tolerances": {
+    "design_load_kN_rel": 0.02,
+    "utilization_ratio_rel": 0.02,
+    "anchor_utilization_tension_abs": 0.001
+  }
+}

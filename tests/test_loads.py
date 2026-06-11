@@ -1,7 +1,6 @@
 """Testes do motor de cargas."""
-import pytest
-from sfsc.enums import StructuralCode
 from sfsc.engines.loads import calculate_loads
+from sfsc.enums import StructuralCode
 
 
 def test_loads_basic(base_inp):

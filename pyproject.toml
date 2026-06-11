@@ -21,7 +21,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4.0", "pytest-cov>=4.1.0"]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.6.0",
+    "mypy>=1.10.0",
+    "types-PyYAML",
+    "pre-commit>=3.7.0",
+]
 # Shell nativa Windows (pywebview) — só necessária para o build desktop portátil.
 desktop = ["pywebview>=6.2.1"]
 
@@ -38,3 +45,37 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+
+# ── Ruff (lint + format) ────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# E501 (comprimento de linha) é gerido pelo formatter; B008 permite Field(...) como default.
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Testes podem reimportar enums por clareza e usar asserts longos.
+"tests/*" = ["E741"]
+
+# ── mypy (gradual) ──────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+ignore_missing_imports = true
+# Base permissiva — o núcleo de cálculo é endurecido por módulo abaixo.
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# Núcleo de domínio: tipagem mais apertada.
+module = ["sfsc.models", "sfsc.policy", "sfsc.assessment", "sfsc.units"]
+disallow_untyped_defs = true
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+# TODO(Fase 2+): elevar engines/reports/ui para disallow_untyped_defs.
+module = ["sfsc.engines.*", "sfsc.reports.*", "sfsc.ui.*", "sfsc.catalogs.*"]
+disallow_untyped_defs = false

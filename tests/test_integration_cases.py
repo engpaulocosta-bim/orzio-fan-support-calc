@@ -1,12 +1,17 @@
 """Casos de integração E2E — input → run_full_calculation → ReportContext."""
-import pytest
+from sfsc.engines.selector import context_for_section_choice, run_full_calculation
 from sfsc.enums import (
-    SupportType, Country, SteelGrade, SectionFamily, FanType,
-    CantileverSubtype, FanConnectionType, AntiVibrationType,
+    AntiVibrationType,
+    CantileverSubtype,
     CheckerStatus,
+    Country,
+    FanConnectionType,
+    FanType,
+    SectionFamily,
+    SteelGrade,
+    SupportType,
 )
 from sfsc.models import FanSupportInput, FanUnit
-from sfsc.engines.selector import run_full_calculation, context_for_section_choice
 
 
 def _make_inp(**kwargs):

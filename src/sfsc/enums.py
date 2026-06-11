@@ -1,5 +1,6 @@
 """Enumerações do sistema SFSC."""
 from __future__ import annotations
+
 from enum import Enum
 
 

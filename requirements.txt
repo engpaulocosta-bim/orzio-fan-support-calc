@@ -1,10 +1,11 @@
-pydantic>=2.5.0
-pyyaml>=6.0.1
-numpy>=1.26.0
-reportlab>=4.0.0
-openpyxl>=3.1.2
-pandas>=2.1.0
-streamlit>=1.30.0
-pywebview>=6.2.1
-pytest>=7.4.0
-pytest-cov>=4.1.0
+# Dependências de runtime do SFSC (aplicação Streamlit + motor de cálculo).
+# Fonte canónica: pyproject.toml [project.dependencies]. Este ficheiro espelha-as
+# com pins compatíveis (~=) para instalação reprodutível sem instalar o pacote.
+# Desenvolvimento: requirements-dev.txt | Build desktop: requirements-build.txt
+pydantic~=2.5
+pyyaml~=6.0
+numpy~=1.26
+reportlab~=4.0
+openpyxl~=3.1
+pandas~=2.1
+streamlit~=1.30

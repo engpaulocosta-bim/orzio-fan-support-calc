@@ -1,12 +1,18 @@
 """Excepções recuperáveis → status; traceback oculto na UI — auditoria H-05/H-08."""
 import pytest
-from sfsc.enums import (
-    SupportType, Country, FanType, SectionFamily, CheckerStatus,
-    OperationMode, CantileverSubtype,
-)
-from sfsc.models import FanSupportInput, FanUnit
+
 from sfsc.engines.selector import run_full_calculation
+from sfsc.enums import (
+    CantileverSubtype,
+    CheckerStatus,
+    Country,
+    FanType,
+    OperationMode,
+    SectionFamily,
+    SupportType,
+)
 from sfsc.exceptions import OutOfScopeError
+from sfsc.models import FanSupportInput, FanUnit
 
 
 def _inp(**kwargs):

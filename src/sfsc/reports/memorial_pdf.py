@@ -1,10 +1,11 @@
 """Geração do memorial de cálculo em PDF — ReportLab."""
 from __future__ import annotations
+
 import io
 from pathlib import Path
-from typing import Optional
-from ..models import ReportContext
+
 from ..assessment import assess_result
+from ..models import ReportContext
 
 # Cores Orzio
 BLUE    = (0.08, 0.28, 0.90)   # #1447E6
@@ -28,20 +29,24 @@ _STATUS_COLORS = {
 }
 
 
-def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -> bytes:
+def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> bytes:
     """Gera memorial PDF e retorna bytes. Escreve ficheiro se output_path fornecido."""
     try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.units import mm
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import mm
         from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-            HRFlowable, KeepTogether,
+            HRFlowable,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
         )
-        from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-    except ImportError:
-        raise ImportError("reportlab não instalado. Execute: pip install reportlab")
+    except ImportError as exc:
+        raise ImportError("reportlab não instalado. Execute: pip install reportlab") from exc
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -50,7 +55,6 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         topMargin=25*mm, bottomMargin=25*mm,
     )
 
-    styles = getSampleStyleSheet()
     W = A4[0] - 40*mm
 
     def _color(rgb): return colors.Color(*rgb)
@@ -60,7 +64,6 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     S_h2     = ParagraphStyle("h2",     fontName="Helvetica-Bold",   fontSize=10, textColor=_color(GREY),  spaceBefore=6, spaceAfter=2)
     S_body   = ParagraphStyle("body",   fontName="Helvetica",        fontSize=9,  leading=13)
     S_note   = ParagraphStyle("note",   fontName="Helvetica-Oblique",fontSize=8,  textColor=_color(GREY),  leading=11)
-    S_warn   = ParagraphStyle("warn",   fontName="Helvetica-Bold",   fontSize=8,  textColor=_color(CORAL))
     S_center = ParagraphStyle("center", fontName="Helvetica",        fontSize=9,  alignment=TA_CENTER)
     S_right  = ParagraphStyle("right",  fontName="Helvetica",        fontSize=8,  alignment=TA_RIGHT, textColor=_color(GREY))
 
@@ -103,7 +106,7 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
     # CABEÇALHO
     # ══════════════════════════════════════════════════════════════════════════
     header_data = [[
-        Paragraph(f"<b>SFSC</b> — Steel Fan Support Calc", S_title),
+        Paragraph("<b>SFSC</b> — Steel Fan Support Calc", S_title),
         Paragraph(f"Rev. {ctx.revision} &nbsp;|&nbsp; {ctx.date}", S_right),
     ]]
     ht = Table(header_data, colWidths=[W * 0.70, W * 0.30])
@@ -179,7 +182,7 @@ def generate_pdf(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         ("Projecto", inp.project_name if inp else "—"),
         ("Tag do suporte", inp.support_tag if inp else "—"),
         ("Tipo de suporte", inp.support_type.value.upper().replace("_", " ") if inp else "—"),
-        ("País / norma", f"{inp.country.value} — {res.structural_code.value if res else '—'}"),
+        ("País / norma", f"{inp.country.value if inp else '—'} — {res.structural_code.value if res else '—'}"),
         ("Preparado por", ctx.prepared_by),
         ("Data", ctx.date),
         ("Revisão", ctx.revision),

@@ -4,12 +4,13 @@ Faixas: <35 BELOW_MIN | 35–500 NORMAL | 500–600 SPECIALIST |
 600–1000 EXTENDED (confirmação) | >1000 BLOCKED.
 """
 import pytest
+
+from sfsc.engines.selector import run_full_calculation
+from sfsc.enums import ClassificationLevel, Country, FanType, SupportType
+from sfsc.exceptions import OutOfScopeError
+from sfsc.models import FanSupportInput, FanUnit
 from sfsc.policy import WeightBand, weight_band, weight_warning
 from sfsc.validators import validate_fan_support_input
-from sfsc.exceptions import OutOfScopeError
-from sfsc.enums import SupportType, Country, ClassificationLevel, FanType
-from sfsc.models import FanSupportInput, FanUnit
-from sfsc.engines.selector import run_full_calculation
 
 
 def _inp(op_weight_kg: float, confirm: bool = False, country=Country.IRELAND):

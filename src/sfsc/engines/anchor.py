@@ -40,10 +40,11 @@ Verificações de betão (apenas anchor_type="concrete"): pull-out por
 aderência com hef = max(8d, 100 mm) — modelo simplificado, ver A-ANC-001.
 """
 from __future__ import annotations
+
 import math
-from typing import Optional
-from ..models import FanSupportInput, LoadCombination, AnchorResult, SteelSection
-from ..enums import StructuralCode, CheckerStatus, SupportType
+
+from ..enums import CheckerStatus, StructuralCode, SupportType
+from ..models import AnchorResult, FanSupportInput, LoadCombination, SteelSection
 from ..units import mm_to_m
 
 _FCK: dict[str, float] = {
@@ -95,7 +96,7 @@ def calculate_anchor(
     code: StructuralCode,
     concrete_grade: str = "C25/30",
     rod_grade: str = "8.8",
-    section: Optional[SteelSection] = None,
+    section: SteelSection | None = None,
 ) -> AnchorResult:
     """Dimensiona ancoragens/varões a partir das combinações de acções totais."""
     warnings: list[str] = []

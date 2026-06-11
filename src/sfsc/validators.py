@@ -1,8 +1,9 @@
 """Validação de inputs do sistema SFSC."""
 from __future__ import annotations
-from .exceptions import MissingInputError, ValidationError, OutOfScopeError
+
 from .enums import OperationMode, SupportType
-from .policy import WeightBand, weight_band, WEIGHT_BLOCK_KG, WEIGHT_PRODUCT_MAX_KG
+from .exceptions import MissingInputError, OutOfScopeError, ValidationError
+from .policy import WEIGHT_BLOCK_KG, WEIGHT_PRODUCT_MAX_KG, WeightBand, weight_band
 
 
 def validate_fan_support_input(inp) -> None:

@@ -1,9 +1,10 @@
 """COMBINED — mesa (pedestal) + pendurais anti-vibração."""
 from __future__ import annotations
-from ...models import FanSupportInput, LoadCombination
-from ...enums import StructuralCode, AntiVibrationType
-from .pedestal import _member_forces as _pedestal_member_forces, calc_pedestal
 
+from ...enums import AntiVibrationType, StructuralCode
+from ...models import FanSupportInput, LoadCombination
+from .pedestal import _member_forces as _pedestal_member_forces
+from .pedestal import calc_pedestal
 
 # Distribuição assumida (modelo simplificado):
 #   Mesa:      70% da carga vertical (+ momento reduzido pelo travamento)

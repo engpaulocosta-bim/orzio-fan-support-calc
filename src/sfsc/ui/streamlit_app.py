@@ -1,30 +1,44 @@
 """Interface Streamlit — SFSC Steel Fan Support Calc."""
 from __future__ import annotations
+
 import datetime
 import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 import streamlit as st
-from sfsc.enums import (
-    SupportType, CantileverSubtype, Country, SteelGrade, SectionFamily,
-    ExposureClass, AntiVibrationType, OperationMode, FanConnectionType, FanType,
-)
 from pydantic import ValidationError as PydanticValidationError
-from sfsc.models import FanSupportInput, FanUnit
-from sfsc.exceptions import SFSCBaseError
-from sfsc.policy import (
-    WeightBand, weight_band,
-    WEIGHT_MIN_RECOMMENDED_KG, WEIGHT_PRODUCT_MAX_KG, WEIGHT_BLOCK_KG,
-)
-from sfsc.catalogs.seismic_catalog import list_zones
-from sfsc.engines.selector import run_full_calculation, context_for_section_choice
-from sfsc.reports.memorial_pdf import generate_pdf
-from sfsc.reports.exports import generate_excel, generate_csv
+
 from sfsc.assessment import assess_result
+from sfsc.catalogs.seismic_catalog import list_zones
+from sfsc.engines.selector import context_for_section_choice, run_full_calculation
+from sfsc.enums import (
+    AntiVibrationType,
+    CantileverSubtype,
+    Country,
+    ExposureClass,
+    FanConnectionType,
+    FanType,
+    OperationMode,
+    SectionFamily,
+    SteelGrade,
+    SupportType,
+)
+from sfsc.exceptions import SFSCBaseError
+from sfsc.models import FanSupportInput, FanUnit
+from sfsc.policy import (
+    WEIGHT_BLOCK_KG,
+    WEIGHT_MIN_RECOMMENDED_KG,
+    WEIGHT_PRODUCT_MAX_KG,
+    WeightBand,
+    weight_band,
+)
+from sfsc.reports.exports import generate_csv, generate_excel
+from sfsc.reports.memorial_pdf import generate_pdf
 
 logger = logging.getLogger("sfsc.ui")
 
@@ -74,7 +88,7 @@ def main() -> None:
         st.subheader("2. Ventilador")
         n_units = st.number_input("Número de unidades", min_value=1, max_value=10, value=1)
 
-        fan_unit_inputs = []
+        fan_unit_inputs: list[dict[str, Any]] = []
         for i in range(int(n_units)):
             with st.expander(f"Unidade {i+1}", expanded=(i==0)):
                 fan_type   = st.selectbox(f"Tipo [{i+1}]", [e.value for e in FanType], key=f"ft{i}")
@@ -153,7 +167,6 @@ def main() -> None:
         zones_dict = list_zones(country)
         zone_options = list(zones_dict.keys())
         zone_descs   = [f"{k} — {v.get('description','')}" for k, v in zones_dict.items()]
-        seismic_zone_idx = 0
         if zone_options:
             seismic_zone_sel = st.selectbox("Zona sísmica (None = default conservativo)",
                                             ["Automático (default)"] + zone_descs)
@@ -450,7 +463,7 @@ def main() -> None:
                         st.metric("η bearing", f"{bp.utilization_bearing:.3f}")
                         st.metric("η bending", f"{bp.utilization_bending:.3f}")
                     with c2:
-                        st.metric(f"Parafusos ventilador → chapa", f"M{bp.bolt_diameter_mm:.0f} × {bp.n_bolts_fan}")
+                        st.metric("Parafusos ventilador → chapa", f"M{bp.bolt_diameter_mm:.0f} × {bp.n_bolts_fan}")
                         st.metric("η bolt (fan)", f"{bp.bolt_utilization_fan:.3f}")
                         st.metric("Soldadura garganta", f"{bp.weld_throat_mm:.1f} mm  η={bp.weld_utilization:.3f}")
                     st.subheader("Furação e bordo livre")

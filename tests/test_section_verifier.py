@@ -1,9 +1,10 @@
 """Testes do verificador de secções."""
 import pytest
-from sfsc.enums import SteelGrade, StructuralCode, CheckerStatus, SectionFamily
+
 from sfsc.catalogs.steel_section_catalog import get_section
+from sfsc.engines.section_verifier import auto_select_section, verify_section
+from sfsc.enums import CheckerStatus, SectionFamily, SteelGrade, StructuralCode
 from sfsc.models import LoadCombination
-from sfsc.engines.section_verifier import verify_section, auto_select_section
 
 
 @pytest.fixture

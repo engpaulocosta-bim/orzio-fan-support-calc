@@ -1,34 +1,46 @@
 """Orquestrador principal — run_full_calculation()."""
 from __future__ import annotations
+
 import datetime
 import logging
-from ..models import (
-    FanSupportInput, FanSupportResult, ReportContext,
-    CitationItem, WarningItem, LoadCombination,
-)
-from ..enums import (
-    SupportType, StructuralCode, Country, OperationMode, CheckerStatus,
-    ExposureClass,
-)
-from ..validators import validate_fan_support_input
-from ..policy import weight_warning, weight_band, WeightBand
-from ..exceptions import DatasetMissingError, OutOfScopeError
-from ..catalogs.seismic_catalog import get_seismic_factor, get_seismic_code
+
+from ..catalogs.seismic_catalog import get_seismic_code, get_seismic_factor
 from ..catalogs.steel_section_catalog import get_section
-from .loads import calculate_loads
-from .section_verifier import (
-    verify_section_envelope, auto_select_section, find_passing_sections,
+from ..enums import (
+    CheckerStatus,
+    Country,
+    ExposureClass,
+    OperationMode,
+    StructuralCode,
+    SupportType,
 )
-from .base_plate import calculate_base_plate
+from ..exceptions import DatasetMissingError, OutOfScopeError
+from ..models import (
+    CitationItem,
+    FanSupportInput,
+    FanSupportResult,
+    LoadCombination,
+    ReportContext,
+    WarningItem,
+)
+from ..policy import WeightBand, weight_band, weight_warning
+from ..validators import validate_fan_support_input
 from .anchor import calculate_anchor
+from .base_plate import calculate_base_plate
+from .checker import classify, run_checker
+from .loads import calculate_loads
 from .metal_connections import calculate_metal_connection
-from .checker import run_checker, classify
-from .support_types.hanger import calc_hanger
+from .section_verifier import (
+    auto_select_section,
+    find_passing_sections,
+    verify_section_envelope,
+)
 from .support_types.cantilever_1 import calc_cantilever_1
 from .support_types.cantilever_2 import calc_cantilever_2
 from .support_types.cantilever_3 import calc_cantilever_3
-from .support_types.pedestal import calc_pedestal
 from .support_types.combined import calc_combined
+from .support_types.hanger import calc_hanger
+from .support_types.pedestal import calc_pedestal
 
 logger = logging.getLogger("sfsc.selector")
 
@@ -210,6 +222,9 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
     section_options = []
 
     if inp.operation_mode == OperationMode.VERIFY:
+        # O model_validator de FanSupportInput garante estes campos em modo VERIFY.
+        assert inp.received_section_family is not None
+        assert inp.received_section_tag is not None
         try:
             section = get_section(inp.received_section_family, inp.received_section_tag)
         except DatasetMissingError as exc:

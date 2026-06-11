@@ -1,11 +1,12 @@
 """Catálogo de secções metálicas — HEA, HEB, IPE, UPN, RHS."""
 from __future__ import annotations
+
 import functools
-from typing import Optional
+
 from ..config import get_section_catalog
 from ..enums import SectionFamily
-from ..models import SteelSection
 from ..exceptions import SectionNotFoundError
+from ..models import SteelSection
 
 
 @functools.lru_cache(maxsize=16)
@@ -38,7 +39,7 @@ def find_minimum_section(
     family: SectionFamily,
     required_W_el_y_cm3: float,
     required_A_cm2: float = 0.0,
-) -> Optional[SteelSection]:
+) -> SteelSection | None:
     for s in _load_family(family):
         if s.W_el_y_cm3 >= required_W_el_y_cm3 and s.A_cm2 >= required_A_cm2:
             return s

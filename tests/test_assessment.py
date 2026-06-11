@@ -5,9 +5,8 @@ from sfsc.enums import (
     StructuralCode,
     SupportType,
 )
-from sfsc.models import AnchorResult, FanSupportResult
+from sfsc.models import AnchorResult, FanSupportResult, ReportContext
 from sfsc.reports.exports import generate_csv
-from sfsc.models import ReportContext
 
 
 def _result(status: CheckerStatus, eta: float) -> FanSupportResult:

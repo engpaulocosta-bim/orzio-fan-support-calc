@@ -78,14 +78,23 @@ python -m venv .venv
 
 ### 2. Install dependencies
 
+Runtime only:
+
 ```powershell
 pip install -r requirements.txt
 ```
 
-For development and tests:
+For development and tests (also installs Ruff, mypy, and pre-commit):
 
 ```powershell
 pip install -e .[dev]
+pre-commit install
+```
+
+For the portable desktop build (PyInstaller + pywebview):
+
+```powershell
+pip install -r requirements-build.txt
 ```
 
 ### 3. Run the application
@@ -111,6 +120,19 @@ pytest
 ```
 
 The repository includes coverage for section catalogs, steel grades, seismic data, loads, section verification, and end-to-end calculation flows.
+
+Numerical regression is protected by a reference-case library in `validation_cases/` — each case ships a hand-calculated memo (`memoria.md`) that justifies the expected values; see `validation_cases/README.md`.
+
+## Code Quality
+
+CI (GitHub Actions) runs Ruff lint/format checks, mypy, and the test suite with a coverage gate (≥85%) on every push. Locally:
+
+```powershell
+ruff check src tests
+ruff format --check src tests
+mypy src/sfsc
+pytest --cov=src/sfsc
+```
 
 ## Portable Desktop Build
 

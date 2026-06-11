@@ -1,21 +1,22 @@
 """Exportação para Excel e CSV."""
 from __future__ import annotations
+
 import csv
 import io
 from pathlib import Path
-from typing import Optional
-from ..models import ReportContext
+
 from ..assessment import assess_result
+from ..models import ReportContext
 
 
-def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None) -> bytes:
+def generate_excel(ctx: ReportContext, output_path: str | Path | None = None) -> bytes:
     """Gera workbook Excel com folhas: Resumo, Secção, Mesa, Ancoragens, Combinações."""
     try:
         import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.styles import Alignment, Font, PatternFill
         from openpyxl.utils import get_column_letter
-    except ImportError:
-        raise ImportError("openpyxl não instalado. Execute: pip install openpyxl")
+    except ImportError as exc:
+        raise ImportError("openpyxl não instalado. Execute: pip install openpyxl") from exc
 
     wb = openpyxl.Workbook()
     inp = ctx.fan_support_input
@@ -24,9 +25,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
 
     BLUE_HEX   = "1447E6"
     LIGHT_HEX  = "EFF4FE"
-    CORAL_HEX  = "FF6B5B"
     GREY_HEX   = "64748B"
-    GREEN_HEX  = "22C55E"
 
     def _header_style(cell, bg=BLUE_HEX):
         cell.font = Font(bold=True, color="FFFFFF", size=10)
@@ -120,7 +119,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
             n3 += 1
             headers_v = ["Check", "η (utilização)", "Estado"]
             for j, h in enumerate(headers_v, 1):
-                _header_style(ws3.cell(n3, j))
+                _header_style(ws3.cell(n3, j, h))
             n3 += 1
             for check, eta in sv.utilization_by_check.items():
                 ws3.cell(n3, 1, check)
@@ -193,7 +192,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         ws6 = wb.create_sheet("Ligações Metálicas")
         mc = res.metal_connection
         n6 = 1
-        for k, v in [
+        rows6: list[tuple[str, object]] = [
             ("Tipo", mc.connection_type),
             ("Chapa ligação [mm]", mc.plate_thickness_mm),
             ("Parafusos", f"M{mc.bolt_diameter_mm:.0f} × {mc.n_bolts} ({mc.bolt_grade})"),
@@ -215,8 +214,9 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
             ("η global", mc.utilization_ratio),
             ("Estado", mc.status.value),
             ("Cláusula", mc.code_clause),
-        ]:
-            _kv_row(ws6, None, k, v, n6); n6 += 1
+        ]
+        for k6, v6 in rows6:
+            _kv_row(ws6, None, k6, v6, n6); n6 += 1
         _set_col_widths(ws6, [38, 35])
 
     buf = io.BytesIO()
@@ -227,7 +227,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
     return xlsx_bytes
 
 
-def generate_csv(ctx: ReportContext, output_path: Optional[str | Path] = None) -> str:
+def generate_csv(ctx: ReportContext, output_path: str | Path | None = None) -> str:
     """Gera CSV resumo de uma linha (útil para batch)."""
     inp = ctx.fan_support_input
     res = ctx.fan_support_result

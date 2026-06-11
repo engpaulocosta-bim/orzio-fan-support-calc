@@ -1,9 +1,11 @@
 """Dimensionamento da chapa de assento (base plate) e parafusos."""
 from __future__ import annotations
+
 import math
-from ..models import FanSupportInput, SteelSection, LoadCombination, BasePlateResult
-from ..enums import SteelGrade, StructuralCode, CheckerStatus, FanConnectionType
+
 from ..catalogs.steel_grade_catalog import get_grade_spec
+from ..enums import CheckerStatus, StructuralCode
+from ..models import BasePlateResult, FanSupportInput, LoadCombination, SteelSection
 
 # Resistência do betão [MPa] — fck por designação
 _FCK: dict[str, float] = {
