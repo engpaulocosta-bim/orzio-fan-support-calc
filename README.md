@@ -179,12 +179,26 @@ At packaging time, the project can generate:
 - Results outside the covered scope may be marked as `REQUIRES_SPECIALIST` or include warnings and limitations in the report context.
 - Before using the tool in production, confirm the assumptions, catalogs, and standards data match your governing design basis and internal QA process.
 
+## Reports and Traceability
+
+Every output (PDF, Excel, CSV) carries the software version and a dataset
+provenance fingerprint (SHA-256 + modification date of each YAML), so a report
+can be traced to the exact data it was computed from. The PDF memorandum
+includes a cover page, an executive summary, a formula memory (intermediate
+values for the governing checks), a traceability section, and a signature
+block; it is watermarked **PRELIMINAR — NÃO APROVADO** whenever the result is
+not a clean `PASS` or is classified `REQUIRES_SPECIALIST`. Exporting requires
+the responsible engineer's name (it appears on the cover and signature block).
+
+Both sizing (`DIMENSION`) and verification (`VERIFY`) modes are available from
+the interface.
+
 ## Development Notes
 
 - Main entry point: `app.py`
-- UI layer: `src/sfsc/ui/streamlit_app.py`
+- UI layer: `src/sfsc/ui/streamlit_app.py` (thin orchestrator) + `src/sfsc/ui/components/`
 - Core calculation orchestration: `src/sfsc/engines/selector.py`
-- YAML-backed configuration loading: `src/sfsc/config.py`
+- YAML-backed configuration and dataset provenance: `src/sfsc/config.py`
 - Packaging scripts and assets: `build_desktop/`
 
 ## License

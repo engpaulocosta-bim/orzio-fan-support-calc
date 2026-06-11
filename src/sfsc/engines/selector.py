@@ -7,6 +7,7 @@ import logging
 
 from ..catalogs.seismic_catalog import get_seismic_code, get_seismic_factor
 from ..catalogs.steel_section_catalog import get_section
+from ..config import get_dataset_provenance
 from ..enums import (
     CheckerStatus,
     Country,
@@ -99,6 +100,20 @@ def context_for_section_choice(ctx: ReportContext, designation: str) -> ReportCo
     if selected_ctx.fan_support_result:
         selected_ctx.fan_support_result.section_options = res.section_options
     selected_ctx.fan_support_input = inp
+    # Registar no contexto que o perfil foi escolhido pelo utilizador (M-04):
+    # o memorial deixa de sugerir que esta foi a recomendação automática.
+    selected_ctx.warnings.append(
+        WarningItem(
+            code="W-SEC-CHOICE",
+            severity="INFO",
+            message=(
+                f"Perfil {designation} seleccionado manualmente pelo utilizador "
+                "entre as opções aprovadas (recomendação automática: "
+                f"{current or 'n/d'})."
+            ),
+            module="selector",
+        )
+    )
     return selected_ctx
 
 
@@ -480,9 +495,10 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         revision="A",
         fan_support_input=inp,
         fan_support_result=fan_result,
-        citations=list({c.standard_id: c for c in citations}.values()),
+        citations=list({(c.standard_id, c.clause): c for c in citations}.values()),
         warnings=warn_items,
         assumptions_declared=list(dict.fromkeys(assumptions)),
+        dataset_provenance=get_dataset_provenance(),
         limitations=[
             "Análise dinâmica de vibrações fora do âmbito (A-VIB-001).",
             "Verificação de fadiga (EN 1993-1-9) fora do âmbito (A-FAT-001).",

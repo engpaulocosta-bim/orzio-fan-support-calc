@@ -6,8 +6,15 @@ import csv
 import io
 from pathlib import Path
 
+from .. import __version__
 from ..assessment import assess_result
+from ..config import get_assumptions
 from ..models import ReportContext
+
+_DISCLAIMER = (
+    "ENGINEERING ESTIMATE ONLY — requer revisão por engenheiro estrutural "
+    "qualificado antes de uso em projecto ou construção."
+)
 
 
 def generate_excel(ctx: ReportContext, output_path: str | Path | None = None) -> bytes:
@@ -256,6 +263,73 @@ def generate_excel(ctx: ReportContext, output_path: str | Path | None = None) ->
             n6 += 1
         _set_col_widths(ws6, [38, 35])
 
+    # ── Folha 7: Avisos e Pressupostos (auditoria H-04) ──────────────────────
+    ws7 = wb.create_sheet("Avisos e Pressupostos")
+    n7 = 1
+    ws7.cell(n7, 1, "Avisos").font = Font(bold=True, size=12, color=BLUE_HEX)
+    n7 += 1
+    for j, h in enumerate(["Código", "Severidade", "Mensagem", "Módulo"], 1):
+        _header_style(ws7.cell(n7, j, h))
+    n7 += 1
+    for w in ctx.warnings:
+        ws7.cell(n7, 1, w.code)
+        sev_cell = ws7.cell(n7, 2, w.severity)
+        if w.severity == "CRITICAL":
+            sev_cell.font = Font(bold=True, color="B91C1C")
+        ws7.cell(n7, 3, w.message).alignment = Alignment(wrap_text=True)
+        ws7.cell(n7, 4, w.module)
+        n7 += 1
+
+    n7 += 1
+    ws7.cell(n7, 1, "Pressupostos declarados").font = Font(bold=True, size=12, color=BLUE_HEX)
+    n7 += 1
+    assumption_index = {
+        a.get("id"): a.get("description", "") for a in get_assumptions().get("assumptions", [])
+    }
+    for j, h in enumerate(["ID", "Descrição"], 1):
+        _header_style(ws7.cell(n7, j, h))
+    n7 += 1
+    for a_id in ctx.assumptions_declared:
+        ws7.cell(n7, 1, a_id)
+        ws7.cell(n7, 2, assumption_index.get(a_id, "")).alignment = Alignment(wrap_text=True)
+        n7 += 1
+
+    n7 += 1
+    ws7.cell(n7, 1, "Limitações").font = Font(bold=True, size=12, color=BLUE_HEX)
+    n7 += 1
+    for lim in ctx.limitations:
+        ws7.cell(n7, 1, lim).alignment = Alignment(wrap_text=True)
+        n7 += 1
+    _set_col_widths(ws7, [16, 14, 90, 18])
+
+    # ── Folha 8: Info (versão + proveniência dos datasets — auditoria H-07) ──
+    ws8 = wb.create_sheet("Info")
+    provenance = ctx.dataset_provenance or {}
+    n8 = 1
+    info_rows: list[tuple[str, object]] = [
+        ("Software", f"SFSC v{__version__}"),
+        ("Projecto", ctx.project_name),
+        ("Tag", ctx.support_tag),
+        ("Data", ctx.date),
+        ("Revisão", ctx.revision),
+        ("Engenheiro responsável", ctx.prepared_by),
+        ("Hash combinado dos datasets", str(provenance.get("datasets_combined_sha256", ""))[:12]),
+        ("Disclaimer", _DISCLAIMER),
+    ]
+    for k8, v8 in info_rows:
+        _kv_row(ws8, None, k8, v8, n8)
+        n8 += 1
+    n8 += 1
+    for j, h in enumerate(["Dataset", "SHA-256", "Modificado"], 1):
+        _header_style(ws8.cell(n8, j, h))
+    n8 += 1
+    for name, meta in provenance.get("datasets", {}).items():
+        ws8.cell(n8, 1, name)
+        ws8.cell(n8, 2, str(meta.get("sha256", ""))[:12])
+        ws8.cell(n8, 3, str(meta.get("modified", "—")))
+        n8 += 1
+    _set_col_widths(ws8, [38, 35, 16])
+
     buf = io.BytesIO()
     wb.save(buf)
     xlsx_bytes = buf.getvalue()
@@ -315,6 +389,14 @@ def generate_csv(ctx: ReportContext, output_path: str | Path | None = None) -> s
         ),
         "status": res.status.value if res else "",
         "classification": res.classification_level.value if res else "",
+        "warnings_count": len(ctx.warnings),
+        "critical_warnings": sum(1 for w in ctx.warnings if w.severity == "CRITICAL"),
+        "software_version": __version__,
+        "datasets_sha256": str((ctx.dataset_provenance or {}).get("datasets_combined_sha256", ""))[
+            :12
+        ],
+        "prepared_by": ctx.prepared_by,
+        "disclaimer": _DISCLAIMER,
     }
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=list(fields.keys()))
