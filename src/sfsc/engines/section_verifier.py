@@ -39,6 +39,8 @@ def verify_section(
     warnings: list[str] = []
     assumptions = ["A-STR-001", "A-STR-002", "A-STR-003"]
     clauses: list[str] = []
+    # Valores intermédios para a memória de fórmulas do memorial (Fase 3).
+    details: dict[str, float] = {"fy_MPa": fy_mpa, "gamma_M0": gamma_M0, "gamma_M1": gamma_M1}
 
     # ── 6.2.6 Resistência ao corte ────────────────────────────────────────────
     # Av ≈ hw × tw  (alma)
@@ -48,6 +50,7 @@ def verify_section(
     V_Ed_kN = max(abs(combination.V_z_kN), abs(combination.V_y_kN))
     eta_V = V_Ed_kN / Vpl_Rd_kN if Vpl_Rd_kN > 0 else 0.0
     checks["shear_z"] = eta_V
+    details.update({"Av_mm2": Av_mm2, "Vpl_Rd_kN": Vpl_Rd_kN, "V_Ed_kN": V_Ed_kN})
     clauses.append("EN 1993-1-1 cl. 6.2.6")
 
     # Efeito de corte na flexão (cl. 6.2.8): se V_Ed > 0.5*Vpl_Rd, reduz fy
@@ -65,6 +68,7 @@ def verify_section(
     M_Ed_kNm = abs(combination.M_y_kNm)
     eta_M = M_Ed_kNm / Mc_Rd_kNm if Mc_Rd_kNm > 0 else 0.0
     checks["bending_y"] = eta_M
+    details.update({"fy_eff_MPa": fy_eff, "Mc_Rd_kNm": Mc_Rd_kNm, "M_Ed_kNm": M_Ed_kNm})
     clauses.append("EN 1993-1-1 cl. 6.2.5")
 
     # ── 6.2.5 Flexão no eixo fraco (M_z — acções horizontais/sísmicas) ────────
@@ -74,6 +78,7 @@ def verify_section(
         Mc_z_Rd_kNm = (section.W_pl_z_mm3 * fy_eff) / (gamma_M0 * 1e6)
         eta_Mz = M_z_Ed_kNm / Mc_z_Rd_kNm if Mc_z_Rd_kNm > 0 else 99.0
         checks["bending_z"] = eta_Mz
+        details.update({"Mc_z_Rd_kNm": Mc_z_Rd_kNm, "M_z_Ed_kNm": M_z_Ed_kNm})
         # Interacção biaxial — soma linear (conservativa face a EN 1993-1-1
         # cl. 6.2.9.1(6), que permite expoentes α=2, β=1 em perfis I)
         if M_Ed_kNm > 0:
@@ -117,6 +122,15 @@ def verify_section(
         Mb_Rd_kNm = chi_LT * W_pl_y_mm3 * fy_mpa / (gamma_M1 * 1e6)
         eta_LTB = M_Ed_kNm / Mb_Rd_kNm if Mb_Rd_kNm > 0 else 0.0
         checks["ltb"] = eta_LTB
+        details.update(
+            {
+                "Lcr_LTB_mm": Lcr_mm,
+                "Mcr_kNm": Mcr_Nmm / 1e6,
+                "lambda_LT": lambda_LT,
+                "chi_LT": chi_LT,
+                "Mb_Rd_kNm": Mb_Rd_kNm,
+            }
+        )
         clauses.append("EN 1993-1-1 cl. 6.3.2")
 
         if lambda_LT > 0.4:
@@ -129,6 +143,7 @@ def verify_section(
         Nc_Rd_kN = section.A_mm2 * fy_mpa / (gamma_M0 * 1000.0)
         eta_N = abs(combination.N_kN) / Nc_Rd_kN
         checks["axial"] = eta_N
+        details.update({"Nc_Rd_kN": Nc_Rd_kN, "N_Ed_kN": abs(combination.N_kN)})
         clauses.append("EN 1993-1-1 cl. 6.2.4")
 
         # 6.3.1 Encurvadura por compressão
@@ -142,6 +157,7 @@ def verify_section(
             Nb_Rd_kN = chi_z * section.A_mm2 * fy_mpa / (gamma_M1 * 1000.0)
             eta_buck = abs(combination.N_kN) / Nb_Rd_kN
             checks["buckling_z"] = eta_buck
+            details.update({"lambda_z": lam_z, "chi_z": chi_z, "Nb_Rd_kN": Nb_Rd_kN})
             clauses.append("EN 1993-1-1 cl. 6.3.1")
 
     # ── Ratio governante ──────────────────────────────────────────────────────
@@ -167,6 +183,7 @@ def verify_section(
         code_clause=" | ".join(dict.fromkeys(clauses)),
         warnings=warnings,
         assumptions_used=assumptions,
+        calculation_details={k: round(v, 4) for k, v in details.items()},
     )
 
 
@@ -235,6 +252,7 @@ def verify_section_envelope(
         code_clause=" | ".join(clauses),
         warnings=warnings,
         assumptions_used=gov_result.assumptions_used,
+        calculation_details=gov_result.calculation_details,
     )
 
 

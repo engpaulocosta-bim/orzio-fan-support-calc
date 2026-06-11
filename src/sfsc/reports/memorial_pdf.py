@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+from .. import __version__
 from ..assessment import assess_result
 from ..models import ReportContext
 
@@ -40,6 +41,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
         from reportlab.lib.units import mm
         from reportlab.platypus import (
             HRFlowable,
+            PageBreak,
             Paragraph,
             SimpleDocTemplate,
             Spacer,
@@ -142,6 +144,95 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
 
     story = []
 
+    inp = ctx.fan_support_input
+    res = ctx.fan_support_result
+    assessment = assess_result(res) if res else None
+
+    def fmt_pct(value: float | None) -> str:
+        return "n/a" if value is None else f"{value:.1f}%"
+
+    # O memorial é preliminar se não passa, requer especialista ou é PRELIMINARY:
+    # nesse caso todas as páginas recebem marca de água diagonal.
+    is_preliminary = (
+        res is None
+        or res.status.value != "PASS"
+        or (assessment is not None and assessment.is_specialist)
+        or (res.classification_level.value == "PRELIMINARY")
+    )
+
+    provenance = ctx.dataset_provenance or {}
+    combined_hash = str(provenance.get("datasets_combined_sha256", ""))[:12] or "n/d"
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # CAPA
+    # ══════════════════════════════════════════════════════════════════════════
+    S_cover_title = ParagraphStyle(
+        "cover_title",
+        fontName="Helvetica-Bold",
+        fontSize=24,
+        textColor=_color(BLUE),
+        alignment=TA_CENTER,
+        spaceAfter=6,
+    )
+    S_cover_sub = ParagraphStyle(
+        "cover_sub",
+        fontName="Helvetica",
+        fontSize=12,
+        textColor=_color(GREY),
+        alignment=TA_CENTER,
+    )
+    story.append(Spacer(1, 45 * mm))
+    story.append(Paragraph("MEMORIAL DE CÁLCULO", S_cover_title))
+    story.append(Paragraph("Suporte metálico para ventilador industrial", S_cover_sub))
+    story.append(Paragraph(f"SFSC — Steel Fan Support Calc v{__version__}", S_cover_sub))
+    story.append(Spacer(1, 18 * mm))
+    cover_rows = [
+        ("Projecto", ctx.project_name),
+        ("Tag do suporte", ctx.support_tag),
+        ("Tipo de suporte", inp.support_type.value.replace("_", " ").title() if inp else "—"),
+        (
+            "País / norma",
+            f"{inp.country.value if inp else '—'} — {res.structural_code.value if res else '—'}",
+        ),
+        ("Revisão", ctx.revision),
+        ("Data", ctx.date),
+        ("Engenheiro responsável", ctx.prepared_by),
+        ("Diagnóstico", assessment.headline if assessment else "—"),
+        ("Classificação", res.classification_level.value if res else "—"),
+        ("Hash dos dados", combined_hash),
+    ]
+    story.append(kv_table(cover_rows, col_w=(60 * mm, None)))
+    story.append(Spacer(1, 14 * mm))
+    if is_preliminary:
+        story.append(
+            Paragraph(
+                "DOCUMENTO PRELIMINAR — NÃO APROVADO PARA CONSTRUÇÃO",
+                ParagraphStyle(
+                    "cover_warn",
+                    fontName="Helvetica-Bold",
+                    fontSize=12,
+                    textColor=_color(CORAL),
+                    alignment=TA_CENTER,
+                ),
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+    story.append(
+        Paragraph(
+            "Este memorial apoia, mas não substitui, o julgamento do engenheiro "
+            "responsável. Resultados de modelo simplificado — ver secções de "
+            "limitações, pressupostos e rastreabilidade.",
+            ParagraphStyle(
+                "cover_note",
+                fontName="Helvetica-Oblique",
+                fontSize=9,
+                textColor=_color(GREY),
+                alignment=TA_CENTER,
+            ),
+        )
+    )
+    story.append(PageBreak())
+
     # ══════════════════════════════════════════════════════════════════════════
     # CABEÇALHO
     # ══════════════════════════════════════════════════════════════════════════
@@ -157,13 +248,6 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     )
     story.append(ht)
     story.append(hr())
-
-    inp = ctx.fan_support_input
-    res = ctx.fan_support_result
-    assessment = assess_result(res) if res else None
-
-    def fmt_pct(value: float | None) -> str:
-        return "n/a" if value is None else f"{value:.1f}%"
 
     SPECIALIST_BG = (0.95, 0.90, 0.99)  # violeta — REQUER ESPECIALISTA
 
@@ -406,6 +490,78 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
                 S_body,
             )
         )
+        if sv.calculation_details:
+            story.append(Spacer(1, 2 * mm))
+            story.append(
+                Paragraph(
+                    f"Memória de fórmulas (combinação governante: "
+                    f"{sv.governing_combination or 'n/d'}):",
+                    S_h2,
+                )
+            )
+            d = sv.calculation_details
+            formula_rows: list[list[str]] = []
+
+            def _frow(label: str, formula: str, *keys: str) -> None:
+                if all(k in d for k in keys):
+                    values = " | ".join(f"{k} = {d[k]:g}" for k in keys)
+                    formula_rows.append([label, formula, values])
+
+            _frow(
+                "Corte (cl. 6.2.6)",
+                "Vpl,Rd = Av·fy/(√3·γM0)",
+                "Av_mm2",
+                "Vpl_Rd_kN",
+                "V_Ed_kN",
+            )
+            _frow(
+                "Flexão M_y (cl. 6.2.5)",
+                "Mc,Rd = W_pl,y·fy,eff/γM0",
+                "Mc_Rd_kNm",
+                "M_Ed_kNm",
+            )
+            _frow(
+                "Flexão M_z (cl. 6.2.9)",
+                "Mc,z,Rd = W_pl,z·fy,eff/γM0",
+                "Mc_z_Rd_kNm",
+                "M_z_Ed_kNm",
+            )
+            _frow(
+                "Encurvadura lateral (cl. 6.3.2)",
+                "Mb,Rd = χ_LT·W_pl,y·fy/γM1; λ_LT = √(W_pl·fy/Mcr)",
+                "Mcr_kNm",
+                "lambda_LT",
+                "chi_LT",
+                "Mb_Rd_kNm",
+            )
+            _frow(
+                "Compressão (cl. 6.2.4)",
+                "Nc,Rd = A·fy/γM0",
+                "Nc_Rd_kN",
+                "N_Ed_kN",
+            )
+            _frow(
+                "Encurvadura compressão (cl. 6.3.1)",
+                "Nb,Rd = χ_z·A·fy/γM1",
+                "lambda_z",
+                "chi_z",
+                "Nb_Rd_kN",
+            )
+            if formula_rows:
+                story.append(
+                    data_table(
+                        ["Verificação", "Fórmula", "Valores intermédios"],
+                        formula_rows,
+                        col_widths=[42 * mm, 52 * mm, W - 94 * mm],
+                    )
+                )
+            story.append(
+                Paragraph(
+                    f"Coeficientes parciais: γM0 = {d.get('gamma_M0', 1.0):g}, "
+                    f"γM1 = {d.get('gamma_M1', 1.0):g} | fy = {d.get('fy_MPa', 0):g} MPa",
+                    S_note,
+                )
+            )
     story.append(Spacer(1, 4 * mm))
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -617,9 +773,16 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     story.append(Paragraph("11. LIMITAÇÕES E PRESSUPOSTOS", S_h1))
     if ctx.assumptions_declared:
+        from ..config import get_assumptions
+
+        assumption_index = {
+            a.get("id"): a.get("description", "") for a in get_assumptions().get("assumptions", [])
+        }
         story.append(Paragraph("<b>Pressupostos declarados:</b>", S_h2))
         for a_id in ctx.assumptions_declared:
-            story.append(Paragraph(f"• {a_id}", S_note))
+            desc = assumption_index.get(a_id, "")
+            text = f"• <b>{a_id}</b>" + (f" — {desc}" if desc else "")
+            story.append(Paragraph(text, S_note))
     if ctx.limitations:
         story.append(Paragraph("<b>Limitações:</b>", S_h2))
         for lim in ctx.limitations:
@@ -644,6 +807,80 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
             )
 
     # ══════════════════════════════════════════════════════════════════════════
+    # 13. RASTREABILIDADE DE DADOS E VERSÃO
+    # ══════════════════════════════════════════════════════════════════════════
+    story.append(Paragraph("13. RASTREABILIDADE DE DADOS E VERSÃO", S_h1))
+    story.append(
+        kv_table(
+            [
+                ("Versão do software", f"SFSC v{__version__}"),
+                ("Hash combinado dos datasets", combined_hash),
+            ]
+        )
+    )
+    datasets = provenance.get("datasets", {})
+    if datasets:
+        story.append(Spacer(1, 2 * mm))
+        ds_rows = [
+            [name, str(meta.get("sha256", ""))[:12], str(meta.get("modified", "—"))]
+            for name, meta in datasets.items()
+        ]
+        story.append(
+            data_table(
+                ["Dataset", "SHA-256 (12)", "Modificado"],
+                ds_rows,
+                col_widths=[90 * mm, 40 * mm, W - 130 * mm],
+            )
+        )
+        story.append(
+            Paragraph(
+                "Um relatório só é reproduzível com a mesma versão de software e os "
+                "mesmos hashes de dataset.",
+                S_note,
+            )
+        )
+    story.append(Spacer(1, 4 * mm))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 14. ASSINATURAS
+    # ══════════════════════════════════════════════════════════════════════════
+    story.append(Paragraph("14. ASSINATURAS", S_h1))
+    sig_rows = [
+        [
+            Paragraph("<b>Função</b>", S_center),
+            Paragraph("<b>Nome</b>", S_center),
+            Paragraph("<b>Assinatura</b>", S_center),
+            Paragraph("<b>Data</b>", S_center),
+        ],
+        [Paragraph("Elaborado por", S_body), Paragraph(ctx.prepared_by, S_body), "", ""],
+        [Paragraph("Verificado por (Eng. estrutural)", S_body), "", "", ""],
+        [Paragraph("Aprovado por", S_body), "", "", ""],
+    ]
+    sig = Table(
+        sig_rows,
+        colWidths=[W * 0.30, W * 0.28, W * 0.26, W * 0.16],
+        rowHeights=[8 * mm, 12 * mm, 12 * mm, 12 * mm],
+    )
+    sig.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), _color(BLUE)),
+                ("TEXTCOLOR", (0, 0), (-1, 0), _color(WHITE)),
+                ("GRID", (0, 0), (-1, -1), 0.4, _color((0.80, 0.85, 0.92))),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    story.append(sig)
+    story.append(
+        Paragraph(
+            "A verificação por engenheiro estrutural qualificado é obrigatória antes "
+            "de qualquer uso em projecto ou construção.",
+            S_note,
+        )
+    )
+
+    # ══════════════════════════════════════════════════════════════════════════
     # FOOTER
     # ══════════════════════════════════════════════════════════════════════════
     story.append(Spacer(1, 8 * mm))
@@ -663,7 +900,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     )
     story.append(
         Paragraph(
-            f"SFSC v1.0  |  {ctx.prepared_by}  |  {ctx.date}",
+            f"SFSC v{__version__}  |  {ctx.prepared_by}  |  {ctx.date}  |  dados {combined_hash}",
             ParagraphStyle(
                 "footer2",
                 fontName="Helvetica",
@@ -674,7 +911,19 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
         )
     )
 
-    doc.build(story)
+    def _decorate_page(canvas, _doc) -> None:
+        if not is_preliminary:
+            return
+        canvas.saveState()
+        canvas.setFont("Helvetica-Bold", 52)
+        canvas.setFillColor(colors.Color(0.95, 0.55, 0.50, alpha=0.18))
+        canvas.translate(A4[0] / 2, A4[1] / 2)
+        canvas.rotate(45)
+        canvas.drawCentredString(0, 60, "PRELIMINAR")
+        canvas.drawCentredString(0, -10, "NÃO APROVADO")
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_decorate_page, onLaterPages=_decorate_page)
     pdf_bytes = buf.getvalue()
 
     if output_path:

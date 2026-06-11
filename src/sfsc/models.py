@@ -265,6 +265,9 @@ class SectionVerificationResult(BaseModel):
     code_clause: str = ""
     warnings: list[str] = Field(default_factory=list)
     assumptions_used: list[str] = Field(default_factory=list)
+    # Valores intermédios da combinação governante (Av, Vpl_Rd, Mcr, χ_LT, …)
+    # — alimentam a memória de fórmulas do memorial PDF (auditoria 4.8).
+    calculation_details: dict[str, float] = Field(default_factory=dict)
 
 
 class BasePlateResult(BaseModel):

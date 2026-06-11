@@ -1,3 +1,11 @@
-"""SFSC — Steel Fan Support Calc v1.0"""
+"""SFSC — Steel Fan Support Calc."""
 
-__version__ = "1.0.0"
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
+try:
+    __version__ = _pkg_version("sfsc")
+except PackageNotFoundError:
+    # Build congelado (PyInstaller) ou execução sem instalação — manter em
+    # sincronia com pyproject.toml.
+    __version__ = "1.0.0"

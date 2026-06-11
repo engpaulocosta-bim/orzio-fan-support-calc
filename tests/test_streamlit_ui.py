@@ -35,6 +35,13 @@ def test_rerun_keeps_rendering_widgets():
         assert len(app.selectbox) == n_widgets
 
 
+def _set_engineer(app):
+    """Preenche o engenheiro responsável (gate de exportação — Fase 3)."""
+    eng = [f for f in app.text_input if "Engenheiro responsável" in f.label]
+    if eng:
+        eng[0].set_value("Eng. Teste")
+
+
 def test_results_persist_across_rerun_for_downloads():
     """Regressão: os botões de download disparam um rerun com calc_btn=False.
     Se os resultados forem renderizados apenas dentro de `if calc_btn:`, esse
@@ -43,6 +50,7 @@ def test_results_persist_across_rerun_for_downloads():
     app = AppTest.from_file("app.py", default_timeout=60)
     app.run()
 
+    _set_engineer(app)
     calc = [b for b in app.button if "Calcular" in b.label]
     assert calc
     calc[0].click()
@@ -57,6 +65,27 @@ def test_results_persist_across_rerun_for_downloads():
     assert not app.exception
     assert len(app.metric) > 0
     assert len(app.get("download_button")) == 3
+
+
+def test_export_gated_until_engineer_filled():
+    """Sem engenheiro responsável, os botões de download não aparecem (F3.5)."""
+    app = AppTest.from_file("app.py", default_timeout=60)
+    app.run()
+    calc = [b for b in app.button if "Calcular" in b.label][0]
+    calc.click()
+    app.run()
+    assert not app.exception
+    assert len(app.metric) > 0  # resultados aparecem…
+    assert len(app.get("download_button")) == 0  # …mas o export está bloqueado
+
+
+def test_verify_mode_available_in_ui():
+    """O modo VERIFY tem de estar exposto na UI (auditoria M-03)."""
+    app = AppTest.from_file("app.py", default_timeout=60)
+    app.run()
+    modes = [r for r in app.radio if "Modo de cálculo" in r.label]
+    assert modes
+    assert "Verificar perfil existente" in modes[0].options
 
 
 def test_calculation_lists_passing_sections_for_user_choice():
