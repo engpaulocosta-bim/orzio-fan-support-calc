@@ -1,9 +1,11 @@
 """Testes dos catálogos de perfis, aços e sísmico."""
+
 import pytest
-from sfsc.enums import SectionFamily, SteelGrade, Country
-from sfsc.catalogs.steel_section_catalog import get_section, list_sections, find_minimum_section
-from sfsc.catalogs.steel_grade_catalog import get_grade_spec, design_strength
+
 from sfsc.catalogs.seismic_catalog import get_seismic_factor, list_zones
+from sfsc.catalogs.steel_grade_catalog import design_strength, get_grade_spec
+from sfsc.catalogs.steel_section_catalog import find_minimum_section, get_section, list_sections
+from sfsc.enums import Country, SectionFamily, SteelGrade
 
 
 def test_heb_catalog_loads():

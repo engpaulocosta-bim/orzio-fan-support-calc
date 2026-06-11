@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package with dev extras
+        run: pip install -e .[dev]
+
+      - name: Ruff lint
+        run: ruff check src/ tests/
+
+      - name: Ruff format check
+        run: ruff format --check src/ tests/
+
+      - name: mypy
+        run: mypy src/sfsc/
+
+      - name: Tests with coverage gate
+        run: pytest -q --cov=src/sfsc --cov-report=term --cov-fail-under=85

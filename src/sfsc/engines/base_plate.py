@@ -1,14 +1,20 @@
 """Dimensionamento da chapa de assento (base plate) e parafusos."""
+
 from __future__ import annotations
+
 import math
-from ..models import FanSupportInput, SteelSection, LoadCombination, BasePlateResult
-from ..enums import SteelGrade, StructuralCode, CheckerStatus, FanConnectionType
+
 from ..catalogs.steel_grade_catalog import get_grade_spec
+from ..enums import CheckerStatus, StructuralCode
+from ..models import BasePlateResult, FanSupportInput, LoadCombination, SteelSection
 
 # Resistência do betão [MPa] — fck por designação
 _FCK: dict[str, float] = {
-    "C20/25": 20.0, "C25/30": 25.0, "C30/37": 30.0,
-    "C35/45": 35.0, "C40/50": 40.0,
+    "C20/25": 20.0,
+    "C25/30": 25.0,
+    "C30/37": 30.0,
+    "C35/45": 35.0,
+    "C40/50": 40.0,
 }
 
 
@@ -33,27 +39,27 @@ def calculate_base_plate(
         - Verificação da soldadura chapa → perfil
     """
     warnings: list[str] = []
-    spec     = get_grade_spec(inp.steel_grade)
-    fy_mpa   = spec.fy_mpa
+    spec = get_grade_spec(inp.steel_grade)
+    fy_mpa = spec.fy_mpa
     gamma_M0 = spec.gamma_M0
 
     fck = _FCK.get(concrete_grade, 25.0)
-    fcd = fck / 1.5   # resistência de cálculo betão [MPa]
+    fcd = fck / 1.5  # resistência de cálculo betão [MPa]
 
     # Tensão de contacto admissível (bearing): f_jd = beta_j × kj × fcd
     beta_j = 0.67
-    kj     = 1.0      # conservativo
-    f_jd   = beta_j * kj * fcd   # MPa
+    kj = 1.0  # conservativo
+    f_jd = beta_j * kj * fcd  # MPa
 
     P_kN = abs(combination.V_z_kN)
-    P_N  = P_kN * 1000.0
+    P_N = P_kN * 1000.0
 
     # ── Dimensões mínimas da chapa ────────────────────────────────────────────
     # Área mínima necessária para distribuir carga no betão
     fan = inp.fan_units[0]
     A_min_mm2 = P_N / f_jd if f_jd > 0 else 1.0
     L_base = fan.footprint_length_mm + 2 * 50  # folga 50mm cada lado
-    B_base = fan.footprint_width_mm  + 2 * 50
+    B_base = fan.footprint_width_mm + 2 * 50
 
     # Aumentar se necessário para garantir f_jd
     while L_base * B_base < A_min_mm2:
@@ -71,13 +77,27 @@ def calculate_base_plate(
         L_base = section.h_mm + 2 * c_mm
 
     # Momento na projecção: M = sigma_bearing × c² / 2
-    M_plate_Nmm_mm = sigma_bearing_mpa * c_mm**2 / 2.0   # Nmm/mm de largura
+    M_plate_Nmm_mm = sigma_bearing_mpa * c_mm**2 / 2.0  # Nmm/mm de largura
 
     # Espessura necessária: t = sqrt(6 × M / fy)
     t_min_mm = math.sqrt(6.0 * M_plate_Nmm_mm / (fy_mpa / gamma_M0))
     t_min_mm = max(t_min_mm, 10.0)  # mínimo 10 mm
-    # Arredondar para espessura comercial
-    t_plate_mm = _round_plate_thickness(t_min_mm)
+    if inp.base_plate_thickness_mm:
+        # Espessura fornecida pelo utilizador → modo verificação (auditoria C-04):
+        # a chapa indicada é verificada, não redimensionada.
+        t_plate_mm = float(inp.base_plate_thickness_mm)
+        warnings.append(
+            f"Espessura da chapa fornecida pelo utilizador ({t_plate_mm:.0f} mm) — "
+            "verificada, não redimensionada."
+        )
+        if t_plate_mm < t_min_mm:
+            warnings.append(
+                f"Espessura fornecida ({t_plate_mm:.0f} mm) inferior à mínima "
+                f"calculada ({t_min_mm:.1f} mm) — flexão da chapa não verifica."
+            )
+    else:
+        # Arredondar para espessura comercial
+        t_plate_mm = _round_plate_thickness(t_min_mm)
 
     # ── Parafusos ventilador → chapa ──────────────────────────────────────────
     # Carga por parafuso; assume 4 parafusos de montagem
@@ -85,7 +105,7 @@ def calculate_base_plate(
     # Capacidade de um parafuso M16 8.8 em corte: ~48 kN
     d_bolt_fan_mm = 16.0
     Fv_Rd_kN = _bolt_shear_capacity(d_bolt_fan_mm, grade="8.8")
-    eta_fan   = (P_kN / n_bolts_fan) / Fv_Rd_kN
+    eta_fan = (P_kN / n_bolts_fan) / Fv_Rd_kN
 
     # Mais parafusos se necessário
     while eta_fan > 0.90 and n_bolts_fan < 12:
@@ -138,13 +158,17 @@ def calculate_base_plate(
     # Cone de betão: fórmula simplificada proporcional a sqrt(fck)*hef^1.5,
     # penalizada por bordo e espaçamento curtos.
     edge_factor = min(1.0, min(edge_x_mm, edge_y_mm) / (1.5 * hef_mm))
-    spacing_factor = min(1.0, min(spacing_x_mm, spacing_y_mm) / (3.0 * hef_mm)) if n_eff > 1 else 1.0
-    cone_single_kN = 7.2 * math.sqrt(fck) * (hef_mm ** 1.5) / 1000.0 / gamma_concrete
+    spacing_factor = (
+        min(1.0, min(spacing_x_mm, spacing_y_mm) / (3.0 * hef_mm)) if n_eff > 1 else 1.0
+    )
+    cone_single_kN = 7.2 * math.sqrt(fck) * (hef_mm**1.5) / 1000.0 / gamma_concrete
     concrete_cone_capacity_kN = n_eff * cone_single_kN * edge_factor * spacing_factor
 
     # Pull-out por aderência: perímetro * hef * fbd.
     fbd_mpa = 0.7 * 2.25 * (fck / 25.0) ** 0.5
-    pullout_capacity_kN = n_eff * math.pi * d_bolt_str_mm * hef_mm * fbd_mpa / 1000.0 / gamma_concrete
+    pullout_capacity_kN = (
+        n_eff * math.pi * d_bolt_str_mm * hef_mm * fbd_mpa / 1000.0 / gamma_concrete
+    )
 
     # Pry-out em corte, conservativamente relacionado com capacidade de cone.
     pryout_capacity_kN = 2.0 * concrete_cone_capacity_kN
@@ -174,22 +198,22 @@ def calculate_base_plate(
     # Comprimento efectivo: 2 × (b_section + h_section)
     L_weld_mm = 2.0 * (section.b_mm + section.h_mm)
     # Resistência do cordão: f_vw,d = fu / (sqrt(3) × beta_w × gamma_M2)
-    fu_mpa    = spec.fu_mpa
-    beta_w    = 0.90   # EC3 Tab. 4.1 para S355
-    gamma_M2  = spec.gamma_M2
-    f_vwd     = fu_mpa / (math.sqrt(3) * beta_w * gamma_M2)
+    fu_mpa = spec.fu_mpa
+    beta_w = 0.90  # EC3 Tab. 4.1 para S355
+    gamma_M2 = spec.gamma_M2
+    f_vwd = fu_mpa / (math.sqrt(3) * beta_w * gamma_M2)
 
     # Tensão no cordão: tau = P / (a × L_weld)
     # Garganta mínima: a = 3 mm
     a_min_mm = 3.0
-    tau_weld  = P_N / (a_min_mm * L_weld_mm)  # N/mm²
-    a_req_mm  = tau_weld / f_vwd
+    tau_weld = P_N / (a_min_mm * L_weld_mm)  # N/mm²
+    a_req_mm = tau_weld / f_vwd
     a_plate_mm = max(a_req_mm, a_min_mm)
-    a_plate_mm = min(a_plate_mm, 8.0)   # máximo prático 8mm
+    a_plate_mm = min(a_plate_mm, 8.0)  # máximo prático 8mm
 
     # Recalcular com a escolhida
     tau_actual = P_N / (a_plate_mm * L_weld_mm)
-    eta_weld   = tau_actual / f_vwd
+    eta_weld = tau_actual / f_vwd
 
     if eta_weld > 1.0:
         warnings.append(
@@ -273,6 +297,6 @@ def _round_plate_thickness(t_min: float) -> float:
 def _bolt_shear_capacity(d_mm: float, grade: str = "8.8") -> float:
     """Resistência ao corte de um parafuso [kN] — aproximação EN 1993-1-8."""
     fub = {"8.8": 800.0, "10.9": 1000.0}.get(grade, 800.0)
-    As_mm2 = 0.78 * math.pi * (d_mm / 2.0)**2  # área resistente aproximada
+    As_mm2 = 0.78 * math.pi * (d_mm / 2.0) ** 2  # área resistente aproximada
     Fv_Rd_N = 0.6 * fub * As_mm2 / 1.25
     return Fv_Rd_N / 1000.0

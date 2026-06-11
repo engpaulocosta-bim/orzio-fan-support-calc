@@ -47,7 +47,19 @@ The application currently supports:
 - Report generation for PDF calculation memoranda, Excel workbooks, and CSV summary files
 - Classification of results including `PASS`, `FAIL`, `MARGINAL`, and `REQUIRES_SPECIALIST`
 
-The current UI describes the intended operating range as industrial fan supports in the approximate range of `35-600 kg`. Heavier or atypical cases may be flagged for specialist review.
+### Weight scope policy
+
+The supported operating range is governed by a single policy (`src/sfsc/policy.py`), applied consistently in validation, classification, UI, and reports:
+
+| Total operating weight | Behaviour |
+|---|---|
+| < 35 kg | Allowed with warning — result classified `PRELIMINARY` |
+| 35 – 500 kg | Validated product range — `ENGINEERING_ESTIMATE` |
+| 500 – 600 kg | Allowed — result classified `REQUIRES_SPECIALIST` |
+| 600 – 1000 kg | Outside the product range — requires explicit user confirmation; `REQUIRES_SPECIALIST` |
+| > 1000 kg | Blocked (`OutOfScopeError`) |
+
+Any result classified `REQUIRES_SPECIALIST` must be reviewed by a qualified structural engineer before use.
 
 ## Requirements
 
@@ -66,14 +78,23 @@ python -m venv .venv
 
 ### 2. Install dependencies
 
+Runtime only:
+
 ```powershell
 pip install -r requirements.txt
 ```
 
-For development and tests:
+For development and tests (also installs Ruff, mypy, and pre-commit):
 
 ```powershell
 pip install -e .[dev]
+pre-commit install
+```
+
+For the portable desktop build (PyInstaller + pywebview):
+
+```powershell
+pip install -r requirements-build.txt
 ```
 
 ### 3. Run the application
@@ -99,6 +120,19 @@ pytest
 ```
 
 The repository includes coverage for section catalogs, steel grades, seismic data, loads, section verification, and end-to-end calculation flows.
+
+Numerical regression is protected by a reference-case library in `validation_cases/` — each case ships a hand-calculated memo (`memoria.md`) that justifies the expected values; see `validation_cases/README.md`.
+
+## Code Quality
+
+CI (GitHub Actions) runs Ruff lint/format checks, mypy, and the test suite with a coverage gate (≥85%) on every push. Locally:
+
+```powershell
+ruff check src tests
+ruff format --check src tests
+mypy src/sfsc
+pytest --cov=src/sfsc
+```
 
 ## Portable Desktop Build
 

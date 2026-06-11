@@ -1,8 +1,46 @@
 """CANTILEVER_2 — consolas simétricas dos dois lados."""
+
 from __future__ import annotations
-from ...models import FanSupportInput, LoadCombination
+
 from ...enums import StructuralCode
+from ...models import FanSupportInput, LoadCombination
 from ...units import mm_to_m
+
+
+def _member_forces(inp: FanSupportInput, c: LoadCombination) -> LoadCombination:
+    """Esforços no elemento para UMA combinação de acções.
+
+    Dois braços simétricos. Cada braço suporta V_z/2.
+        M_braço   = (V_z/2) × L_braço + (V_z/2) × e
+        M_central = V_z × L / 8   (viga central biapoiada)
+        M_y = max(M_braço, M_central)
+        M_z = max((V_y/2) × L_braço, V_y × L / 8)   (acção horizontal)
+    """
+    L_m = mm_to_m(inp.span_mm)  # vão total entre apoios externos
+    L_arm = L_m / 2.0
+    e_m = mm_to_m(inp.eccentricity_mm)
+    P_kN = c.V_z_kN
+    H_kN = abs(c.V_y_kN)
+
+    M_arm_kNm = (P_kN / 2.0) * L_arm + abs(P_kN / 2.0) * e_m
+    M_central_kNm = P_kN * L_m / 8.0
+    M_y_kNm = max(M_arm_kNm, M_central_kNm)
+    M_z_kNm = max((H_kN / 2.0) * L_arm, H_kN * L_m / 8.0)
+
+    return LoadCombination(
+        name=c.name,
+        N_kN=0.0,
+        V_z_kN=P_kN / 2.0,  # cada braço recebe metade
+        V_y_kN=c.V_y_kN / 2.0,
+        M_y_kNm=M_y_kNm,
+        M_z_kNm=M_z_kNm,
+        member_level=True,
+        load_factors_used=c.load_factors_used,
+        description=(
+            f"Cantilever 2 lados L={L_m:.2f}m braço={L_arm:.2f}m "
+            f"M_braço={M_arm_kNm:.2f} kNm M_central={M_central_kNm:.2f} kNm"
+        ),
+    )
 
 
 def calc_cantilever_2(
@@ -10,43 +48,16 @@ def calc_cantilever_2(
     total_weight_kN: float,
     combinations: list[LoadCombination],
     code: StructuralCode,
-) -> tuple[LoadCombination, float, float]:
+) -> tuple[list[LoadCombination], float, float]:
     """
-    Dois braços simétricos. Cada braço suporta P/2.
-    Viga central (entre apoios) recebe carga total — biapoiada.
-    Momento na viga: M = P/2 × (L_arm)  por braço.
-    Momento na viga central: depende da geometria — assume biapoiada simétrica.
-    Lcr_y = L_total (vão entre apoios externos)
-    Lcr_z = 0.5 × L_total
+    Transforma TODAS as combinações de acções em esforços no elemento
+    (auditoria C-01/C-02 — a combinação sísmica também é verificada).
+
+    Lcr_y = L_total (vão entre apoios externos), Lcr_z = 0.5×L_total.
     """
-    L_mm  = inp.span_mm       # vão total entre apoios externos
-    L_m   = mm_to_m(L_mm)
-    L_arm = L_m / 2.0         # braço de cada lado
+    member_combos = [_member_forces(inp, c) for c in combinations]
 
-    governing = max(combinations, key=lambda c: abs(c.V_z_kN))
-    P_kN = governing.V_z_kN
-
-    # Momento máximo em cada braço
-    M_arm_kNm = (P_kN / 2.0) * L_arm
-
-    # Momento máximo na viga central (carga distribuída simétrica)
-    M_central_kNm = P_kN * L_m / 8.0  # wL²/8 equivalente
-
-    M_governing = max(M_arm_kNm, M_central_kNm)
-
-    updated = LoadCombination(
-        name=governing.name,
-        N_kN=0.0,
-        V_z_kN=P_kN / 2.0,   # cada braço recebe metade
-        V_y_kN=governing.V_y_kN,
-        M_y_kNm=M_governing,
-        governing=True,
-        load_factors_used=governing.load_factors_used,
-        description=(
-            f"Cantilever 2 lados L={L_m:.2f}m braço={L_arm:.2f}m "
-            f"M_braço={M_arm_kNm:.2f} kNm M_central={M_central_kNm:.2f} kNm"
-        ),
-    )
+    L_mm = inp.span_mm
     Lcr_y_mm = L_mm
     Lcr_z_mm = 0.5 * L_mm
-    return updated, Lcr_y_mm, Lcr_z_mm
+    return member_combos, Lcr_y_mm, Lcr_z_mm

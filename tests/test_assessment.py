@@ -5,9 +5,8 @@ from sfsc.enums import (
     StructuralCode,
     SupportType,
 )
-from sfsc.models import AnchorResult, FanSupportResult
+from sfsc.models import AnchorResult, FanSupportResult, ReportContext
 from sfsc.reports.exports import generate_csv
-from sfsc.models import ReportContext
 
 
 def _result(status: CheckerStatus, eta: float) -> FanSupportResult:
@@ -61,11 +60,13 @@ def test_assessment_reports_failure_result():
 
 def test_csv_exports_assessment_fields():
     result = _result(CheckerStatus.PASS, 0.72)
-    csv_text = generate_csv(ReportContext(
-        project_name="Project",
-        support_tag="FSU-T",
-        fan_support_result=result,
-    ))
+    csv_text = generate_csv(
+        ReportContext(
+            project_name="Project",
+            support_tag="FSU-T",
+            fan_support_result=result,
+        )
+    )
 
     assert "diagnosis,governing_item,governing_utilization_pct" in csv_text
     assert "PASSA - CONSERVADOR" in csv_text

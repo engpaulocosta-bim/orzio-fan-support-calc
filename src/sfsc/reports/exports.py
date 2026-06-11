@@ -1,32 +1,32 @@
 """Exportação para Excel e CSV."""
+
 from __future__ import annotations
+
 import csv
 import io
 from pathlib import Path
-from typing import Optional
-from ..models import ReportContext
+
 from ..assessment import assess_result
+from ..models import ReportContext
 
 
-def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None) -> bytes:
+def generate_excel(ctx: ReportContext, output_path: str | Path | None = None) -> bytes:
     """Gera workbook Excel com folhas: Resumo, Secção, Mesa, Ancoragens, Combinações."""
     try:
         import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.styles import Alignment, Font, PatternFill
         from openpyxl.utils import get_column_letter
-    except ImportError:
-        raise ImportError("openpyxl não instalado. Execute: pip install openpyxl")
+    except ImportError as exc:
+        raise ImportError("openpyxl não instalado. Execute: pip install openpyxl") from exc
 
     wb = openpyxl.Workbook()
     inp = ctx.fan_support_input
     res = ctx.fan_support_result
     assessment = assess_result(res) if res else None
 
-    BLUE_HEX   = "1447E6"
-    LIGHT_HEX  = "EFF4FE"
-    CORAL_HEX  = "FF6B5B"
-    GREY_HEX   = "64748B"
-    GREEN_HEX  = "22C55E"
+    BLUE_HEX = "1447E6"
+    LIGHT_HEX = "EFF4FE"
+    GREY_HEX = "64748B"
 
     def _header_style(cell, bg=BLUE_HEX):
         cell.font = Font(bold=True, color="FFFFFF", size=10)
@@ -64,10 +64,26 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         kv_data += [
             ("Diagnóstico", assessment.headline if assessment else "—"),
             ("Verificação governante", assessment.governing_item if assessment else "—"),
-            ("Utilização governante [%]", round(assessment.utilization_percent, 1) if assessment and assessment.utilization_percent is not None else "—"),
-            ("Conservadorismo informativo [%]", round(assessment.conservatism_percent, 1) if assessment and assessment.conservatism_percent is not None else "—"),
-            ("Perfil seleccionado", res.recommended_section.designation if res.recommended_section else "—"),
-            ("Utilização máx. secção", res.section_verification.utilization_ratio if res.section_verification else "—"),
+            (
+                "Utilização governante [%]",
+                round(assessment.utilization_percent, 1)
+                if assessment and assessment.utilization_percent is not None
+                else "—",
+            ),
+            (
+                "Conservadorismo informativo [%]",
+                round(assessment.conservatism_percent, 1)
+                if assessment and assessment.conservatism_percent is not None
+                else "—",
+            ),
+            (
+                "Perfil seleccionado",
+                res.recommended_section.designation if res.recommended_section else "—",
+            ),
+            (
+                "Utilização máx. secção",
+                res.section_verification.utilization_ratio if res.section_verification else "—",
+            ),
             ("Estado global", res.status.value),
             ("Classificação", res.classification_level.value),
         ]
@@ -77,19 +93,27 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
     _set_col_widths(ws, [35, 30])
 
     # ── Folha 2: Combinações ──────────────────────────────────────────────────
+    # Dois níveis distintos (auditoria C-02): acções totais vs esforços no elemento.
     ws2 = wb.create_sheet("Combinações")
-    headers_c = ["Combinação", "V_z (kN)", "V_y (kN)", "M_y (kNm)", "N (kN)", "Governante"]
+    headers_c = ["Nível", "Combinação", "V_z (kN)", "V_y (kN)", "M_y (kNm)", "N (kN)", "Governante"]
     for j, h in enumerate(headers_c, 1):
         _header_style(ws2.cell(1, j, h))
-    if res and res.all_combinations:
-        for i, c in enumerate(res.all_combinations, 2):
-            ws2.cell(i, 1, c.name)
-            ws2.cell(i, 2, round(c.V_z_kN, 3))
-            ws2.cell(i, 3, round(c.V_y_kN, 3))
-            ws2.cell(i, 4, round(c.M_y_kNm, 3))
-            ws2.cell(i, 5, round(c.N_kN, 3))
-            ws2.cell(i, 6, "Sim" if c.governing else "")
-    _set_col_widths(ws2, [28, 16, 16, 16, 16, 14])
+    row_n = 2
+    if res:
+        for level, combos in (
+            ("Acções totais", res.all_combinations),
+            ("Esforços no elemento", res.member_forces),
+        ):
+            for c in combos:
+                ws2.cell(row_n, 1, level)
+                ws2.cell(row_n, 2, c.name)
+                ws2.cell(row_n, 3, round(c.V_z_kN, 3))
+                ws2.cell(row_n, 4, round(c.V_y_kN, 3))
+                ws2.cell(row_n, 5, round(c.M_y_kNm, 3))
+                ws2.cell(row_n, 6, round(c.N_kN, 3))
+                ws2.cell(row_n, 7, "Sim" if c.governing else "")
+                row_n += 1
+    _set_col_widths(ws2, [22, 28, 16, 16, 16, 16, 14])
 
     # ── Folha 3: Secção ───────────────────────────────────────────────────────
     ws3 = wb.create_sheet("Secção")
@@ -97,13 +121,19 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         sec = res.recommended_section
         n3 = 1
         for k, v in [
-            ("Designação", sec.designation), ("Família", sec.family.value),
-            ("h [mm]", sec.h_mm), ("b [mm]", sec.b_mm),
-            ("tw [mm]", sec.tw_mm), ("tf [mm]", sec.tf_mm),
-            ("A [cm²]", sec.A_cm2), ("I_y [cm⁴]", sec.I_y_cm4),
-            ("W_el,y [cm³]", sec.W_el_y_cm3), ("Peso [kg/m]", sec.weight_kgm),
+            ("Designação", sec.designation),
+            ("Família", sec.family.value),
+            ("h [mm]", sec.h_mm),
+            ("b [mm]", sec.b_mm),
+            ("tw [mm]", sec.tw_mm),
+            ("tf [mm]", sec.tf_mm),
+            ("A [cm²]", sec.A_cm2),
+            ("I_y [cm⁴]", sec.I_y_cm4),
+            ("W_el,y [cm³]", sec.W_el_y_cm3),
+            ("Peso [kg/m]", sec.weight_kgm),
         ]:
-            _kv_row(ws3, None, k, v, n3); n3 += 1
+            _kv_row(ws3, None, k, v, n3)
+            n3 += 1
 
         if res.section_verification:
             sv = res.section_verification
@@ -112,7 +142,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
             n3 += 1
             headers_v = ["Check", "η (utilização)", "Estado"]
             for j, h in enumerate(headers_v, 1):
-                _header_style(ws3.cell(n3, j))
+                _header_style(ws3.cell(n3, j, h))
             n3 += 1
             for check, eta in sv.utilization_by_check.items():
                 ws3.cell(n3, 1, check)
@@ -129,10 +159,13 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         bp = res.base_plate
         n4 = 1
         for k, v in [
-            ("L [mm]", bp.length_mm), ("B [mm]", bp.width_mm),
-            ("Espessura [mm]", bp.thickness_mm), ("Aço", bp.steel_grade.value),
+            ("L [mm]", bp.length_mm),
+            ("B [mm]", bp.width_mm),
+            ("Espessura [mm]", bp.thickness_mm),
+            ("Aço", bp.steel_grade.value),
             ("σ_bearing [MPa]", bp.bearing_stress_mpa),
-            ("η_bearing", bp.utilization_bearing), ("η_bending", bp.utilization_bending),
+            ("η_bearing", bp.utilization_bearing),
+            ("η_bending", bp.utilization_bending),
             ("Parafusos ventilador", f"M{bp.bolt_diameter_mm:.0f} × {bp.n_bolts_fan}"),
             ("η_bolt_fan", bp.bolt_utilization_fan),
             ("Parafusos estrutura", f"M20 × {bp.n_bolts_structure}"),
@@ -148,28 +181,43 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
             ("η pull-out", bp.utilization_pullout),
             ("η pry-out", bp.utilization_pryout),
             ("Garganta soldadura [mm]", bp.weld_throat_mm),
-            ("η_weld", bp.weld_utilization), ("Estado", bp.status.value),
+            ("η_weld", bp.weld_utilization),
+            ("Estado", bp.status.value),
         ]:
-            _kv_row(ws4, None, k, v, n4); n4 += 1
+            _kv_row(ws4, None, k, v, n4)
+            n4 += 1
         _set_col_widths(ws4, [35, 25])
 
-    # ── Folha 5: Ancoragens ───────────────────────────────────────────────────
+    # ── Folha 5: Ancoragens / varões ──────────────────────────────────────────
     if res and res.anchor:
-        ws5 = wb.create_sheet("Ancoragens")
         anc = res.anchor
-        n5 = 1
-        for k, v in [
-            ("Nº ancoragens", anc.n_anchors),
+        is_rod = anc.anchor_type == "rod"
+        ws5 = wb.create_sheet("Varões Suspensão" if is_rod else "Ancoragens")
+        rows5 = [
+            (
+                "Tipo de verificação",
+                "Varão roscado de suspensão (sem betão)"
+                if is_rod
+                else "Ancoragem embebida em betão",
+            ),
+            ("Nº", anc.n_anchors),
             ("Diâmetro [mm]", anc.anchor_diameter_mm),
-            ("Profundidade hef [mm]", anc.embedment_depth_mm),
+        ]
+        if not is_rod:
+            rows5.append(("Profundidade hef [mm]", anc.embedment_depth_mm))
+        rows5 += [
             ("N_Rd total [kN]", anc.tensile_capacity_kN),
             ("V_Rd total [kN]", anc.shear_capacity_kN),
             ("η_tracção", anc.utilization_tension),
             ("η_corte", anc.utilization_shear),
             ("η_interacção", anc.utilization_combined),
-            ("Estado", anc.status.value), ("Cláusula", anc.code_clause),
-        ]:
-            _kv_row(ws5, None, k, v, n5); n5 += 1
+            ("Estado", anc.status.value),
+            ("Cláusula", anc.code_clause),
+        ]
+        n5 = 1
+        for k, v in rows5:
+            _kv_row(ws5, None, k, v, n5)
+            n5 += 1
         _set_col_widths(ws5, [35, 25])
 
     # ── Folha 6: Ligações metálicas ───────────────────────────────────────────
@@ -177,7 +225,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
         ws6 = wb.create_sheet("Ligações Metálicas")
         mc = res.metal_connection
         n6 = 1
-        for k, v in [
+        rows6: list[tuple[str, object]] = [
             ("Tipo", mc.connection_type),
             ("Chapa ligação [mm]", mc.plate_thickness_mm),
             ("Parafusos", f"M{mc.bolt_diameter_mm:.0f} × {mc.n_bolts} ({mc.bolt_grade})"),
@@ -193,14 +241,19 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
             ("Garganta soldadura [mm]", mc.weld_throat_mm),
             ("Comprimento soldadura [mm]", mc.weld_length_mm),
             ("η soldadura", mc.weld_utilization),
-            ("Stiffener", f"{mc.stiffener_thickness_mm:.1f} mm" if mc.stiffener_required else "Não"),
+            (
+                "Stiffener",
+                f"{mc.stiffener_thickness_mm:.1f} mm" if mc.stiffener_required else "Não",
+            ),
             ("Cantoneira", mc.cleat_angle or "—"),
             ("Diagonal", mc.diagonal_member or "—"),
             ("η global", mc.utilization_ratio),
             ("Estado", mc.status.value),
             ("Cláusula", mc.code_clause),
-        ]:
-            _kv_row(ws6, None, k, v, n6); n6 += 1
+        ]
+        for k6, v6 in rows6:
+            _kv_row(ws6, None, k6, v6, n6)
+            n6 += 1
         _set_col_widths(ws6, [38, 35])
 
     buf = io.BytesIO()
@@ -211,7 +264,7 @@ def generate_excel(ctx: ReportContext, output_path: Optional[str | Path] = None)
     return xlsx_bytes
 
 
-def generate_csv(ctx: ReportContext, output_path: Optional[str | Path] = None) -> str:
+def generate_csv(ctx: ReportContext, output_path: str | Path | None = None) -> str:
     """Gera CSV resumo de uma linha (útil para batch)."""
     inp = ctx.fan_support_input
     res = ctx.fan_support_result
@@ -232,19 +285,33 @@ def generate_csv(ctx: ReportContext, output_path: Optional[str | Path] = None) -
         "design_load_kN": res.design_load_kN if res else "",
         "seismic_factor_g": res.seismic_factor_g if res else "",
         "section": res.recommended_section.designation if (res and res.recommended_section) else "",
-        "section_utilization": res.section_verification.utilization_ratio if (res and res.section_verification) else "",
+        "section_utilization": res.section_verification.utilization_ratio
+        if (res and res.section_verification)
+        else "",
         "base_plate_t_mm": res.base_plate.thickness_mm if (res and res.base_plate) else "",
         "base_plate_hole_d_mm": res.base_plate.hole_diameter_mm if (res and res.base_plate) else "",
-        "base_plate_concrete_cone_eta": res.base_plate.utilization_concrete_cone if (res and res.base_plate) else "",
-        "base_plate_pullout_eta": res.base_plate.utilization_pullout if (res and res.base_plate) else "",
-        "base_plate_pryout_eta": res.base_plate.utilization_pryout if (res and res.base_plate) else "",
+        "base_plate_concrete_cone_eta": res.base_plate.utilization_concrete_cone
+        if (res and res.base_plate)
+        else "",
+        "base_plate_pullout_eta": res.base_plate.utilization_pullout
+        if (res and res.base_plate)
+        else "",
+        "base_plate_pryout_eta": res.base_plate.utilization_pryout
+        if (res and res.base_plate)
+        else "",
         "anchor_d_mm": res.anchor.anchor_diameter_mm if (res and res.anchor) else "",
         "n_anchors": res.anchor.n_anchors if (res and res.anchor) else "",
-        "metal_connection": res.metal_connection.connection_type if (res and res.metal_connection) else "",
-        "metal_connection_eta": res.metal_connection.utilization_ratio if (res and res.metal_connection) else "",
+        "anchor_type": res.anchor.anchor_type if (res and res.anchor) else "",
+        "metal_connection": res.metal_connection.connection_type
+        if (res and res.metal_connection)
+        else "",
+        "metal_connection_eta": res.metal_connection.utilization_ratio
+        if (res and res.metal_connection)
+        else "",
         "metal_connection_bolts": (
             f"M{res.metal_connection.bolt_diameter_mm:.0f}x{res.metal_connection.n_bolts}"
-            if (res and res.metal_connection) else ""
+            if (res and res.metal_connection)
+            else ""
         ),
         "status": res.status.value if res else "",
         "classification": res.classification_level.value if res else "",

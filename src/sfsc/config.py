@@ -1,9 +1,12 @@
 """Configuração global — carregamento de YAMLs com cache."""
+
 from __future__ import annotations
+
 import functools
 import sys
-import yaml
 from pathlib import Path
+
+import yaml
 
 _ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent.parent))
 

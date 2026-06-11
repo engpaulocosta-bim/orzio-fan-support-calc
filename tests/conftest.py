@@ -1,12 +1,32 @@
 """Fixtures partilhadas para os testes SFSC."""
+
+import base64
+import re
 import sys
+import zlib
 from pathlib import Path
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from sfsc.enums import SupportType, Country, SteelGrade, SectionFamily, FanType
+from sfsc.enums import Country, FanType, SectionFamily, SteelGrade, SupportType
 from sfsc.models import FanSupportInput, FanUnit
+
+
+def pdf_text(pdf_bytes: bytes) -> bytes:
+    """Extrai texto dos content streams do PDF (ASCII85 + Flate do ReportLab)."""
+    text = b""
+    for m in re.finditer(rb"(?<!end)stream\r?\n(.*?)endstream", pdf_bytes, re.DOTALL):
+        data = m.group(1).strip()
+        try:
+            text += zlib.decompress(base64.a85decode(data, adobe=True))
+        except Exception:
+            try:
+                text += zlib.decompress(data)
+            except Exception:
+                pass
+    return text
 
 
 @pytest.fixture

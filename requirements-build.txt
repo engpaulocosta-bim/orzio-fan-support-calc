@@ -1,0 +1,5 @@
+# Dependências do build desktop portátil Windows (PyInstaller + shell pywebview).
+# Instala também o runtime. Usar apenas na máquina/CI que gera dist/SFSC.exe.
+-r requirements.txt
+pyinstaller>=6.3
+pywebview~=6.2

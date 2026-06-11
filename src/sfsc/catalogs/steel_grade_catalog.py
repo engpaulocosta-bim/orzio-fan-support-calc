@@ -1,8 +1,11 @@
 """Catálogo de graus de aço estrutural."""
+
 from __future__ import annotations
+
 from dataclasses import dataclass
-from ..enums import SteelGrade, StructuralCode
+
 from ..config import get_steel_grades_config
+from ..enums import SteelGrade
 from ..exceptions import SteelGradeNotFoundError
 
 
@@ -10,9 +13,9 @@ from ..exceptions import SteelGradeNotFoundError
 class SteelGradeSpec:
     key: str
     norm: str
-    fy_mpa: float          # t ≤ 40 mm
+    fy_mpa: float  # t ≤ 40 mm
     fu_mpa: float
-    fy_thick_mpa: float    # t > 40 mm
+    fy_thick_mpa: float  # t > 40 mm
     E_mpa: float = 210_000.0
     G_mpa: float = 81_000.0
     gamma_M0: float = 1.00

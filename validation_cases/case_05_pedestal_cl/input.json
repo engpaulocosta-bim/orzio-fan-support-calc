@@ -1,0 +1,45 @@
+{
+  "project_name": "Validation case_05_pedestal_cl",
+  "support_tag": "CASE_05_PEDESTAL_CL",
+  "design_notes": "",
+  "prepared_by": "SFSC v1.0",
+  "fan_units": [
+    {
+      "tag": "",
+      "fan_type": "centrifugal",
+      "weight_kg": 300.0,
+      "operating_weight_kg": 320.0,
+      "footprint_length_mm": 900.0,
+      "footprint_width_mm": 700.0,
+      "centre_of_gravity_height_mm": 300.0,
+      "rated_power_kw": null,
+      "speed_rpm": null
+    }
+  ],
+  "support_type": "pedestal",
+  "cantilever_subtype": null,
+  "operation_mode": "dimension",
+  "country": "CL",
+  "seismic_zone": "3",
+  "steel_grade": "S355",
+  "preferred_section_families": [
+    "HEB",
+    "IPE"
+  ],
+  "allow_auto_select": true,
+  "dynamic_factor": 1.5,
+  "installation_height_mm": 800.0,
+  "span_mm": 1200.0,
+  "eccentricity_mm": 0.0,
+  "hanger_rod_length_mm": null,
+  "anti_vibration": "none",
+  "anti_vibration_static_deflection_mm": null,
+  "include_base_plate": false,
+  "fan_connection_type": null,
+  "base_plate_thickness_mm": null,
+  "received_section_tag": null,
+  "received_section_family": null,
+  "exposure_class": "interior_dry",
+  "concrete_grade": "C25/30",
+  "confirm_extended_range": false
+}

@@ -1,7 +1,7 @@
 """Testes do motor de cargas."""
-import pytest
-from sfsc.enums import StructuralCode
+
 from sfsc.engines.loads import calculate_loads
+from sfsc.enums import StructuralCode
 
 
 def test_loads_basic(base_inp):
@@ -25,6 +25,7 @@ def test_seismic_combo_has_horizontal(base_inp):
 
 def test_nbr_coeff(base_inp):
     from sfsc.enums import Country
+
     inp = base_inp.model_copy(update={"country": Country.BRAZIL})
     _, combos = calculate_loads(inp, StructuralCode.NBR_8800, 0.10)
     uls = next(c for c in combos if c.name == "ULS_fundamental")

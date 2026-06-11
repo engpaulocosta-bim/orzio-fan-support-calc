@@ -1,9 +1,12 @@
 """Motor de cargas — combinações de acções EC1/EC8/NBR/NCh."""
+
 from __future__ import annotations
+
 import logging
+
+from ..enums import StructuralCode
 from ..models import FanSupportInput, LoadCombination
-from ..enums import Country, StructuralCode
-from ..units import kg_to_kn, G_GRAVITY
+from ..units import kg_to_kn
 
 logger = logging.getLogger("sfsc.loads")
 
@@ -16,10 +19,10 @@ _GAMMA: dict[str, dict[str, float]] = {
 
 _CODE_TO_GROUP: dict[StructuralCode, str] = {
     StructuralCode.EC3_EN1993: "EC",
-    StructuralCode.EC3_UK_NA:  "EC",
-    StructuralCode.EC3_NF_NA:  "EC",
-    StructuralCode.NBR_8800:   "BR",
-    StructuralCode.NCH_427:    "CL",
+    StructuralCode.EC3_UK_NA: "EC",
+    StructuralCode.EC3_NF_NA: "EC",
+    StructuralCode.NBR_8800: "BR",
+    StructuralCode.NCH_427: "CL",
 }
 
 
@@ -40,7 +43,7 @@ def calculate_loads(
 
     # Peso estimado do suporte: 15% do equipamento (conservativo)
     G_support_kN = 0.15 * G_equipment_kN
-    G_total_kN   = G_equipment_kN + G_support_kN
+    G_total_kN = G_equipment_kN + G_support_kN
 
     # ── Carga variável Q (arranque dinâmico) ──────────────────────────────────
     Q_dynamic_kN = G_equipment_kN * (inp.dynamic_factor - 1.0)
@@ -54,32 +57,38 @@ def calculate_loads(
     gQ = _GAMMA[group]["gamma_Q"]
 
     # ── Combinação 1: ULS fundamental (domina normalmente) ────────────────────
-    G_d  = gG * G_total_kN
-    Q_d  = gQ * Q_dynamic_kN
+    G_d = gG * G_total_kN
+    Q_d = gQ * Q_dynamic_kN
     V_uls = G_d + Q_d
 
     combo_uls = LoadCombination(
         name="ULS_fundamental",
         V_z_kN=V_uls,
         N_kN=0.0,
-        load_factors_used={"gamma_G": gG, "gamma_Q": gQ,
-                           "G_kN": round(G_total_kN, 3),
-                           "Q_kN": round(Q_dynamic_kN, 3)},
+        load_factors_used={
+            "gamma_G": gG,
+            "gamma_Q": gQ,
+            "G_kN": round(G_total_kN, 3),
+            "Q_kN": round(Q_dynamic_kN, 3),
+        },
         description=f"{gG}×G + {gQ}×Q  =  {V_uls:.2f} kN",
     )
 
     # ── Combinação 2: ULS sísmica ─────────────────────────────────────────────
-    V_seismic   = 1.0 * G_total_kN
-    H_seismic   = 1.0 * E_d_horizontal_kN
+    V_seismic = 1.0 * G_total_kN
+    H_seismic = 1.0 * E_d_horizontal_kN
 
     combo_seis = LoadCombination(
         name="ULS_seismic",
         V_z_kN=V_seismic,
         V_y_kN=H_seismic,
         N_kN=0.0,
-        load_factors_used={"gamma_G": 1.0, "ag_g": seismic_factor_g,
-                           "G_kN": round(G_total_kN, 3),
-                           "E_d_kN": round(E_d_horizontal_kN, 3)},
+        load_factors_used={
+            "gamma_G": 1.0,
+            "ag_g": seismic_factor_g,
+            "G_kN": round(G_total_kN, 3),
+            "E_d_kN": round(E_d_horizontal_kN, 3),
+        },
         description=f"1.0×G + E_d  =  {V_seismic:.2f} kN vertical + {H_seismic:.2f} kN horizontal",
     )
 
@@ -87,15 +96,21 @@ def calculate_loads(
     combo_sls = LoadCombination(
         name="SLS_characteristic",
         V_z_kN=G_total_kN + Q_dynamic_kN,
-        load_factors_used={"gamma_G": 1.0, "gamma_Q": 1.0,
-                           "G_kN": round(G_total_kN, 3),
-                           "Q_kN": round(Q_dynamic_kN, 3)},
+        load_factors_used={
+            "gamma_G": 1.0,
+            "gamma_Q": 1.0,
+            "G_kN": round(G_total_kN, 3),
+            "Q_kN": round(Q_dynamic_kN, 3),
+        },
         description=f"1.0×G + 1.0×Q  =  {G_total_kN + Q_dynamic_kN:.2f} kN",
     )
 
     combinations = [combo_uls, combo_seis, combo_sls]
     logger.debug(
         "Loads: G=%.2f kN, Q=%.2f kN, E_d=%.2f kN, ULS=%.2f kN",
-        G_total_kN, Q_dynamic_kN, E_d_horizontal_kN, V_uls,
+        G_total_kN,
+        Q_dynamic_kN,
+        E_d_horizontal_kN,
+        V_uls,
     )
     return G_total_kN, combinations

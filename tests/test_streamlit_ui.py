@@ -71,8 +71,7 @@ def test_calculation_lists_passing_sections_for_user_choice():
     assert not app.exception
     assert len(app.metric) > 0
     profile_selectors = [
-        s for s in app.selectbox
-        if s.label == "Perfil ativo para resultados e documentos"
+        s for s in app.selectbox if s.label == "Perfil ativo para resultados e documentos"
     ]
     assert profile_selectors
     assert len(profile_selectors[0].options) >= 1
