@@ -60,6 +60,9 @@ def get_governing_utilization(result: FanSupportResult) -> tuple[str, float | No
     if result.metal_connection:
         checks.append(("Ligações metálicas", result.metal_connection.utilization_ratio))
 
+    if result.platform and result.platform.diagonal:
+        checks.append(("Diagonal da plataforma", result.platform.diagonal.utilization_ratio))
+
     if not checks:
         return "Sem verificacoes dimensionantes", None
 

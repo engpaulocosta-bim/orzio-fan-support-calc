@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .. import __version__
 from ..assessment import assess_result
+from ..engineering import CalculationResultState
 from ..enums import CheckStatus
 from ..i18n import Lang, t
 from ..models import ReportContext
@@ -30,6 +31,15 @@ _STATUS_COLORS = {
     "OUT_OF_SCOPE": (0.94, 0.94, 0.94),
     "REQUIRES_SPECIALIST": RED_BG,
     "WARNING": WARN_BG,
+}
+
+_ENGINEERING_STATE_KEY = {
+    CalculationResultState.VERIFIED: "engineering.state.verified",
+    CalculationResultState.SIMPLIFIED: "engineering.state.simplified",
+    CalculationResultState.NOT_VERIFIED: "engineering.state.notVerified",
+    CalculationResultState.NOT_APPLICABLE: "engineering.state.notApplicable",
+    CalculationResultState.REQUIRES_ENGINEER_REVIEW: "engineering.state.requiresEngineerReview",
+    CalculationResultState.FAILED: "engineering.state.failed",
 }
 
 
@@ -139,8 +149,32 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     res = ctx.fan_support_result
     assessment = assess_result(res) if res else None
 
+    # Phase 07: default to PT for legacy sections; use i18n for new sections.
+    _lang = Lang.PT
+
     def fmt_pct(value: float | None) -> str:
         return "n/a" if value is None else f"{value:.1f}%"
+
+    def member_status_label(status: str, lang: Lang) -> str:
+        key = {
+            "PASS": "status.ok",
+            "MARGINAL": "status.marginal",
+            "FAIL": "status.fail",
+        }.get(status)
+        return t(key, lang) if key else status
+
+    def member_axis_label(axis: object, lang: Lang) -> str:
+        if axis in ("y", "z"):
+            return str(axis)
+        return t("report.label.none", lang)
+
+    def connection_status_label(status: str, lang: Lang) -> str:
+        return {
+            "verified": t("engineering.state.verified", lang),
+            "failed": t("engineering.state.failed", lang),
+            "not_verified": t("engineering.state.notVerified", lang),
+            "requires_engineer_review": t("engineering.state.requiresEngineerReview", lang),
+        }.get(status, status)
 
     # O memorial é preliminar se não passa, requer especialista ou é PRELIMINARY:
     # nesse caso todas as páginas recebem marca de água diagonal.
@@ -175,9 +209,9 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
         alignment=TA_CENTER,
     )
     story.append(Spacer(1, 50 * mm))
-    story.append(Paragraph("MEMORIAL DE CÁLCULO", S_cover_title))
+    story.append(Paragraph(t("pdf.cover.title", _lang), S_cover_title))
     story.append(Spacer(1, 2 * mm))
-    story.append(Paragraph("Suporte metálico para ventilador industrial", S_cover_sub))
+    story.append(Paragraph(t("pdf.cover.subtitle", _lang), S_cover_sub))
     story.append(Paragraph(f"SFSC — Steel Fan Support Calc v{__version__}", S_cover_sub))
     story.append(Spacer(1, 16 * mm))
     cover_rows = [
@@ -200,7 +234,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     if is_preliminary:
         story.append(
             Paragraph(
-                "DOCUMENTO PRELIMINAR — NÃO APROVADO PARA CONSTRUÇÃO",
+                t("pdf.preliminary.label", _lang),
                 ParagraphStyle(
                     "cover_warn",
                     fontName="Helvetica-Bold",
@@ -213,9 +247,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
         story.append(Spacer(1, 4 * mm))
     story.append(
         Paragraph(
-            "Este memorial apoia, mas não substitui, o julgamento do engenheiro "
-            "responsável. Resultados de modelo simplificado — ver secções de "
-            "limitações, pressupostos e rastreabilidade.",
+            t("pdf.disclaimer", _lang),
             ParagraphStyle(
                 "cover_note",
                 fontName="Helvetica-Oblique",
@@ -331,10 +363,264 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
         )
         story.append(Spacer(1, 4 * mm))
 
+    if ctx.engineering_report_state and ctx.engineering_report_state.states:
+        lang = Lang.PT
+        story.append(Paragraph(t("engineering.summary.title", lang), S_h1))
+        engineering_rows = [
+            [
+                t(item.label_key, lang),
+                t(_ENGINEERING_STATE_KEY[item.state], lang),
+            ]
+            for item in ctx.engineering_report_state.states
+        ]
+        story.append(
+            data_table(
+                [
+                    t("engineering.column.item", lang),
+                    t("report.column.status", lang),
+                ],
+                engineering_rows,
+                col_widths=[W * 0.62, W * 0.38],
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+
+    if ctx.import_review is not None:
+        lang = Lang.PT
+        import_review = ctx.import_review
+        story.append(Paragraph(t("report.section.importReview", lang), S_h1))
+        story.append(
+            kv_table(
+                [
+                    (
+                        t("report.column.source", lang),
+                        import_review.source.source_type,
+                    ),
+                    (
+                        t("report.column.fileName", lang),
+                        import_review.source.file_name or "—",
+                    ),
+                    (
+                        t("report.column.confirmed", lang),
+                        t("common.yes", lang)
+                        if import_review.confirmed
+                        else t("common.no", lang),
+                    ),
+                    (
+                        t("report.column.importedElements", lang),
+                        str(import_review.imported_elements_count),
+                    ),
+                    (
+                        t("report.column.acceptedMembers", lang),
+                        str(import_review.accepted_members_count),
+                    ),
+                    (
+                        t("report.column.rejectedElements", lang),
+                        str(import_review.rejected_elements_count),
+                    ),
+                ],
+                col_w=(62 * mm, None),
+            )
+        )
+        if import_review.confirmation_notes:
+            story.append(
+                Paragraph(
+                    f"<b>{t('report.label.assumptions', lang)}:</b> "
+                    f"{import_review.confirmation_notes}",
+                    S_body,
+                )
+            )
+        if import_review.warnings:
+            warning_rows = [
+                [
+                    str(item.code),
+                    str(item.severity),
+                    str(item.element_id or "—"),
+                    str(item.message),
+                ]
+                for item in import_review.warnings
+            ]
+            story.append(
+                data_table(
+                    [
+                        t("report.column.warningCode", lang),
+                        t("report.column.warningSeverity", lang),
+                        t("report.column.element", lang),
+                        t("report.column.warnings", lang),
+                    ],
+                    warning_rows,
+                    col_widths=[22 * mm, 24 * mm, 22 * mm, W - 68 * mm],
+                )
+            )
+        story.append(Spacer(1, 4 * mm))
+
+    if res and res.connection_check_rows:
+        lang = Lang.PT
+        story.append(Paragraph(t("report.section.connectionChecks", lang), S_h1))
+        connection_rows = [
+            [
+                str(row.get("support_id", "")),
+                str(row.get("type", "")),
+                connection_status_label(str(row.get("status", "")), lang),
+                "N/A"
+                if row.get("utilization_ratio") is None
+                else f"{float(row.get('utilization_ratio', 0.0)):.3f}",
+                str(row.get("governing_combination", "")),
+                f"{float(row.get('reaction_fx_kN', 0.0)):.3f}",
+                f"{float(row.get('reaction_fz_kN', 0.0)):.3f}",
+                f"{float(row.get('reaction_my_kNm', 0.0)):.3f}",
+                ", ".join(str(item) for item in row.get("missing_inputs", [])) or "—",
+            ]
+            for row in res.connection_check_rows
+        ]
+        story.append(
+            data_table(
+                [
+                    t("report.column.support", lang),
+                    t("report.column.type", lang),
+                    t("report.column.status", lang),
+                    t("report.column.eta", lang),
+                    t("report.column.combination", lang),
+                    t("report.column.reactionFx", lang),
+                    t("report.column.reactionFz", lang),
+                    t("report.column.reactionMy", lang),
+                    t("report.column.missingInputs", lang),
+                ],
+                connection_rows,
+                col_widths=[
+                    17 * mm,
+                    20 * mm,
+                    21 * mm,
+                    12 * mm,
+                    21 * mm,
+                    14 * mm,
+                    14 * mm,
+                    16 * mm,
+                    W - 135 * mm,
+                ],
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PHASE 07: CALCULATION MODEL TRANSPARENCY
+    # ══════════════════════════════════════════════════════════════════════════
+    lang = _lang
+    story.append(Paragraph(t("report.section.calculationModel", lang), S_h1))
+    _solver_engine = res.solver_engine if res else "simplified"
+    _is_global_frame = _solver_engine == "global_frame" and res and not res.solver_failed
+    _model_type_label = t("report.label.globalFrame", lang) if _is_global_frame else t("report.label.simplified", lang)
+    story.append(
+        kv_table(
+            [
+                (t("report.label.calculationModelType", lang), _model_type_label),
+                (t("report.label.solverEngine", lang), _solver_engine),
+            ]
+        )
+    )
+    if not _is_global_frame:
+        story.append(
+            Paragraph(
+                f"⚠ {t('report.label.simplifiedModelWarning', lang)}",
+                S_note,
+            )
+        )
+    story.append(Spacer(1, 4 * mm))
+
+    # ── Phase 07: Serviceability status ─────────────────────────────────────
+    story.append(Paragraph(t("report.section.serviceability", lang), S_h1))
+    _include_sls = inp.calculation_options.include_serviceability if inp else False
+    _displacement_available = bool(res and res.solver_displacements)
+    if not _include_sls:
+        _sls_state = t("engineering.state.notApplicable", lang)
+        _sls_reason = "Serviceability module not enabled in calculation options."
+    elif _displacement_available:
+        _sls_state = t("engineering.state.verified", lang)
+        _sls_reason = "Displacement results available from solver."
+    else:
+        _sls_state = t("engineering.state.notVerified", lang)
+        _sls_reason = t("report.label.deflectionNotAvailable", lang)
+    story.append(
+        kv_table(
+            [
+                (t("report.label.serviceabilityStatus", lang), _sls_state),
+                (t("report.label.serviceabilityReason", lang), _sls_reason),
+            ]
+        )
+    )
+    if _include_sls and not _displacement_available:
+        story.append(
+            Paragraph(
+                f"⚠ {t('report.label.serviceabilityNotVerified', lang)}",
+                ParagraphStyle(
+                    "sls_warn",
+                    fontName="Helvetica-Bold",
+                    fontSize=9,
+                    textColor=_color(CORAL),
+                    leading=13,
+                ),
+            )
+        )
+    story.append(Spacer(1, 4 * mm))
+
+    # ── Phase 07: Connection verification status ──────────────────────────────
+    story.append(Paragraph(t("report.section.connectionStatus", lang), S_h1))
+    _has_connection_rows = bool(res and res.connection_check_rows)
+    _connection_checks_requested = inp is not None and (
+        inp.calculation_options.include_base_plate
+        or inp.calculation_options.include_anchors
+        or inp.calculation_options.include_steel_connections
+    )
+
+    def _connection_item_state(check_type: str) -> str:
+        if not _has_connection_rows:
+            return t("engineering.state.notVerified", lang)
+        matching = [r for r in (res.connection_check_rows if res else []) if r.get("type") == check_type]
+        if not matching:
+            return t("engineering.state.notVerified", lang)
+        statuses = {str(r.get("status", "")) for r in matching}
+        if "failed" in statuses:
+            return t("engineering.state.failed", lang)
+        if "not_verified" in statuses:
+            return t("engineering.state.notVerified", lang)
+        if "requires_engineer_review" in statuses:
+            return t("engineering.state.requiresEngineerReview", lang)
+        return t("engineering.state.verified", lang)
+
+    story.append(
+        kv_table(
+            [
+                (t("report.label.basePlateStatus", lang), _connection_item_state("base_plate")),
+                (t("report.label.anchorStatus", lang), _connection_item_state("anchor_group")),
+                (t("report.label.weldStatus", lang), _connection_item_state("steel_fixation")),
+            ]
+        )
+    )
+    if not _has_connection_rows:
+        story.append(
+            Paragraph(
+                f"⚠ {t('report.label.connectionNotVerified', lang)}",
+                ParagraphStyle(
+                    "conn_warn",
+                    fontName="Helvetica-Bold",
+                    fontSize=9,
+                    textColor=_color(CORAL),
+                    leading=13,
+                ),
+            )
+        )
+        story.append(
+            Paragraph(
+                t("report.label.connectionWarning", lang),
+                S_note,
+            )
+        )
+    story.append(Spacer(1, 4 * mm))
+
     # ══════════════════════════════════════════════════════════════════════════
     # 1. IDENTIFICAÇÃO
     # ══════════════════════════════════════════════════════════════════════════
-    story.extend(section_heading("1. IDENTIFICAÇÃO", 42 * mm))
+    story.extend(section_heading(t("pdf.section.identification", _lang), 42 * mm))
     rows_id = [
         ("Projecto", inp.project_name if inp else "—"),
         ("Tag do suporte", inp.support_tag if inp else "—"),
@@ -346,6 +632,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
         ("Preparado por", ctx.prepared_by),
         ("Data", ctx.date),
         ("Revisão", ctx.revision),
+        (t("report.label.calculationModelType", _lang), _model_type_label),
     ]
     if inp and inp.design_notes:
         rows_id.append(("Notas", inp.design_notes))
@@ -355,7 +642,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 2. VENTILADOR
     # ══════════════════════════════════════════════════════════════════════════
-    story.extend(section_heading("2. DADOS DO VENTILADOR", 34 * mm))
+    story.extend(section_heading(t("pdf.section.fan", _lang), 34 * mm))
     if inp and inp.fan_units:
         total_w = inp.total_operating_weight_kg
         fan_rows = []
@@ -388,7 +675,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 3. GEOMETRIA E CONFIGURAÇÃO
     # ══════════════════════════════════════════════════════════════════════════
-    story.extend(section_heading("3. GEOMETRIA E CONFIGURAÇÃO", 48 * mm))
+    story.extend(section_heading(t("pdf.section.geometry", _lang), 48 * mm))
     if inp:
         rows_geo = [
             ("Tipo de suporte", inp.support_type.value.replace("_", " ").title()),
@@ -397,7 +684,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
             ("Excentricidade CG", f"{inp.eccentricity_mm:.0f} mm"),
             ("Factor dinâmico", f"{inp.dynamic_factor}  (VDI 3840)"),
             ("Anti-vibração", inp.anti_vibration.value),
-            ("Mesa / base plate", "Sim" if inp.include_base_plate else "Não"),
+            (t("report.label.basePlateStatus", _lang), t("common.yes", _lang) if inp.include_base_plate else t("common.no", _lang)),
             ("Classe de exposição", inp.exposure_class.value),
             ("Betão de suporte", inp.concrete_grade),
         ]
@@ -409,7 +696,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 4. CARGAS E COMBINAÇÕES
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("4. CARGAS E COMBINAÇÕES DE ACÇÕES", S_h1))
+    story.append(Paragraph(t("pdf.section.loads", _lang), S_h1))
     if res:
         kv_loads = [
             ("Factor sísmico ag/g", f"{res.seismic_factor_g:.3f}  ({res.seismic_code.value})"),
@@ -425,6 +712,94 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
                 )
             )
         story.append(kv_table(kv_loads))
+        if res.platform and (
+            res.platform.load_surface_components
+            or res.platform.distributed_line_loads
+            or res.platform.manual_loads_applied
+        ):
+            story.append(Spacer(1, 2 * mm))
+            story.append(Paragraph("4.A Superficies de carga e modelo manual", S_h2))
+            if res.platform.load_surface_components:
+                story.append(
+                    data_table(
+                        [
+                            "Origem",
+                            "Caso",
+                            "q [kN/m2]",
+                            "Area [m2]",
+                            "Total [kN]",
+                            "Metodo",
+                        ],
+                        [
+                            [
+                                str(item["source"]),
+                                str(item["load_case"]),
+                                f"{float(item['area_load_kn_m2']):.3f}",
+                                f"{float(item['area_m2']):.3f}",
+                                f"{float(item['total_load_kN']):.3f}",
+                                str(item["distribution_method"]),
+                            ]
+                            for item in res.platform.load_surface_components
+                        ],
+                        col_widths=[34 * mm, 18 * mm, 22 * mm, 22 * mm, 22 * mm, 32 * mm],
+                    )
+                )
+            if res.platform.distributed_line_loads:
+                story.append(Spacer(1, 2 * mm))
+                story.append(
+                    data_table(
+                        [
+                            "Origem",
+                            "Caso",
+                            "Membro",
+                            "q [kN/m]",
+                            "L [m]",
+                            "Total [kN]",
+                        ],
+                        [
+                            [
+                                str(item["source"]),
+                                str(item["load_case"]),
+                                str(item["target_member"]),
+                                f"{float(item['line_load_kN_m']):.3f}",
+                                f"{float(item['loaded_length_m']):.3f}",
+                                f"{float(item['total_load_kN']):.3f}",
+                            ]
+                            for item in res.platform.distributed_line_loads
+                        ],
+                        col_widths=[30 * mm, 16 * mm, 26 * mm, 22 * mm, 18 * mm, 22 * mm],
+                    )
+                )
+            if res.platform.manual_loads_applied:
+                story.append(Spacer(1, 2 * mm))
+                story.append(
+                    data_table(
+                        [
+                            "Carga manual",
+                            "Caso",
+                            "Direcao",
+                            "Membro",
+                            "Valor",
+                            "Eq. [kN]",
+                        ],
+                        [
+                            [
+                                str(item["name"]),
+                                str(item["load_case"]),
+                                str(item["direction"]),
+                                str(item["target_member"]),
+                                f"{float(item['value']):.3f} {item['unit']}",
+                                f"{float(item['equivalent_total_kN']):.3f}",
+                            ]
+                            for item in res.platform.manual_loads_applied
+                        ],
+                        col_widths=[34 * mm, 16 * mm, 20 * mm, 24 * mm, 28 * mm, 20 * mm],
+                    )
+                )
+            if res.platform.warnings:
+                story.append(Spacer(1, 1 * mm))
+                for warning in res.platform.warnings:
+                    story.append(Paragraph(warning, S_note))
 
         def _combo_rows(combos):
             return [
@@ -471,7 +846,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 5. PERFIL DIMENSIONADO
     # ══════════════════════════════════════════════════════════════════════════
-    story.append(Paragraph("5. SECÇÃO METÁLICA", S_h1))
+    story.append(Paragraph(t("pdf.section.section", _lang), S_h1))
     if res and res.recommended_section:
         sec = res.recommended_section
         story.append(
@@ -510,6 +885,61 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
                 S_body,
             )
         )
+        if res.member_check_rows:
+            lang = Lang.PT
+            story.append(Spacer(1, 2 * mm))
+            story.append(Paragraph(t("report.section.memberChecks", lang), S_h2))
+            member_rows = [
+                [
+                    str(row.get("member_id", "")),
+                    str(row.get("member_kind", "")),
+                    member_status_label(str(row.get("status", "")), lang),
+                    f"{float(row.get('utilization_ratio', 0.0)):.3f}",
+                    str(row.get("governing_check", "")),
+                    str(row.get("governing_combination", "")),
+                    member_axis_label(row.get("governing_axis"), lang),
+                    f"{float(row.get('axial_force_kN', 0.0)):.3f}",
+                    f"{float(row.get('shear_force_kN', 0.0)):.3f}",
+                    f"{float(row.get('bending_moment_kNm', 0.0)):.3f}",
+                ]
+                for row in res.member_check_rows
+            ]
+            story.append(
+                data_table(
+                    [
+                        t("report.column.member", lang),
+                        t("report.column.type", lang),
+                        t("report.column.status", lang),
+                        t("report.column.eta", lang),
+                        t("report.column.governingCheck", lang),
+                        t("report.column.combination", lang),
+                        t("report.column.axis", lang),
+                        t("report.column.axialForce", lang),
+                        t("report.column.shearForce", lang),
+                        t("report.column.bendingMoment", lang),
+                    ],
+                    member_rows,
+                    col_widths=[
+                        16 * mm,
+                        12 * mm,
+                        16 * mm,
+                        10 * mm,
+                        26 * mm,
+                        18 * mm,
+                        8 * mm,
+                        13 * mm,
+                        13 * mm,
+                        14 * mm,
+                    ],
+                )
+            )
+            if sv.assumptions_used:
+                story.append(
+                    Paragraph(
+                        f"{t('report.label.assumptions', lang)}: " + ", ".join(sv.assumptions_used),
+                        S_note,
+                    )
+                )
         if sv.calculation_details:
             story.append(CondPageBreak(72 * mm))
             story.append(Spacer(1, 2 * mm))
@@ -589,7 +1019,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # 6. MESA / BASE PLATE (se activada)
     # ══════════════════════════════════════════════════════════════════════════
     if res and res.base_plate:
-        story.extend(section_heading("6. MESA / CHAPA DE ASSENTO", 76 * mm))
+        story.extend(section_heading(t("pdf.section.basePlate", _lang), 76 * mm))
         bp = res.base_plate
         story.append(
             kv_table(
@@ -644,9 +1074,9 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # 7. ANCORAGENS
     # ══════════════════════════════════════════════════════════════════════════
     if res and res.anchor and res.anchor.anchor_type == "rod":
-        story.append(Paragraph("7. VARÕES ROSCADOS DE SUSPENSÃO", S_h1))
+        story.append(Paragraph(t("pdf.section.anchors", _lang), S_h1))
     else:
-        story.extend(section_heading("7. ANCORAGENS", 56 * mm))
+        story.extend(section_heading(t("pdf.section.anchors", _lang), 56 * mm))
     if res and res.anchor:
         anc = res.anchor
         anc_rows = [
@@ -680,7 +1110,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # 8. LIGAÇÕES METÁLICAS
     # ══════════════════════════════════════════════════════════════════════════
     if res and res.metal_connection:
-        story.extend(section_heading("8. LIGAÇÕES METÁLICAS", 62 * mm))
+        story.extend(section_heading(t("pdf.section.metalConnection", _lang), 62 * mm))
         mc = res.metal_connection
         story.append(
             kv_table(
@@ -721,7 +1151,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 9. VERIFICAÇÃO FINAL
     # ══════════════════════════════════════════════════════════════════════════
-    story.extend(section_heading("9. VERIFICAÇÃO FINAL", 52 * mm))
+    story.extend(section_heading(t("pdf.section.finalCheck", _lang), 52 * mm))
     if res and assessment:
         status_val = res.status.value
         bg = RED_BG if assessment.is_failure else WARN_BG if assessment.is_borderline else GREEN_BG
@@ -774,7 +1204,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 10. CITAÇÕES NORMATIVAS
     # ══════════════════════════════════════════════════════════════════════════
-    story.extend(section_heading("10. CITAÇÕES NORMATIVAS", 60 * mm))
+    story.extend(section_heading(t("pdf.section.normativeRefs", _lang), 60 * mm))
     if ctx.citations:
         cit_rows = [
             [c.standard_id, c.edition or "—", c.clause or "—", c.description or "—"]
@@ -792,7 +1222,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 11. LIMITAÇÕES E PRESSUPOSTOS
     # ══════════════════════════════════════════════════════════════════════════
-    story.extend(section_heading("11. LIMITAÇÕES E PRESSUPOSTOS", 54 * mm))
+    story.extend(section_heading(t("pdf.section.limitations", _lang), 54 * mm))
     if ctx.assumptions_declared:
         from ..config import get_assumptions
 
@@ -813,8 +1243,38 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 12. AVISOS
     # ══════════════════════════════════════════════════════════════════════════
+    # ── Phase 07: Engineering warnings section (always present) ───────────────
+    _phase07_warnings: list[str] = []
+    if not _is_global_frame:
+        _phase07_warnings.append(t("warning.model.simplified", _lang))
+    if _include_sls and not _displacement_available:
+        _phase07_warnings.append(t("warning.serviceability.notVerified", _lang))
+    if not _has_connection_rows:
+        _phase07_warnings.append(t("warning.connection.basePlateNotVerified", _lang))
+        _phase07_warnings.append(t("warning.connection.anchorNotVerified", _lang))
+        _phase07_warnings.append(t("warning.connection.weldNotVerified", _lang))
+    _phase07_warnings.append(t("warning.engineer.reviewRequired", _lang))
+    _phase07_warnings.append(t("warning.tramex.notBasePlate", _lang))
+
+    story.extend(section_heading(t("report.section.engineeringWarnings", _lang), 40 * mm))
+    for _w_txt in _phase07_warnings:
+        story.append(
+            Paragraph(
+                f"⚠ {_w_txt}",
+                ParagraphStyle(
+                    "eng_warn",
+                    fontName="Helvetica-Oblique",
+                    fontSize=8.5,
+                    textColor=_color((0.7, 0.35, 0.0)),
+                    leading=12,
+                    spaceAfter=2,
+                ),
+            )
+        )
+    story.append(Spacer(1, 4 * mm))
+
     if ctx.warnings:
-        story.extend(section_heading("12. AVISOS", 40 * mm))
+        story.extend(section_heading(t("pdf.section.warnings", _lang), 40 * mm))
         for w in ctx.warnings:
             sev = w.severity.upper()
             color_map = {"CRITICAL": CORAL, "WARNING": (0.8, 0.5, 0.0), "INFO": GREY}
@@ -830,7 +1290,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ══════════════════════════════════════════════════════════════════════════
     # 13. RASTREABILIDADE DE DADOS E VERSÃO
     # ══════════════════════════════════════════════════════════════════════════
-    story.extend(section_heading("13. RASTREABILIDADE DE DADOS E VERSÃO", 70 * mm))
+    story.extend(section_heading(t("pdf.section.traceability", _lang), 70 * mm))
     story.append(
         kv_table(
             [
@@ -866,7 +1326,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # 14. ASSINATURAS
     # ══════════════════════════════════════════════════════════════════════════
     story.append(CondPageBreak(72 * mm))
-    signature_block = [Paragraph("14. ASSINATURAS", S_h1)]
+    signature_block = [Paragraph(t("pdf.section.signatures", _lang), S_h1)]
     sig_rows = [
         [
             Paragraph("<b>Função</b>", S_center),
@@ -937,7 +1397,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
         canvas.drawCentredString(
             A4[0] / 2,
             bottom_y + 1.5 * mm,
-            "ENGINEERING ESTIMATE ONLY - NOT FOR CONSTRUCTION WITHOUT SPECIALIST REVIEW",
+            t("pdf.footer.warning", _lang),
         )
         canvas.setFont("Helvetica", 6.7)
         canvas.setFillColor(_color(GREY))

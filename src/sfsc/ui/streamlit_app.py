@@ -19,11 +19,15 @@ import streamlit as st
 from pydantic import ValidationError as PydanticValidationError
 
 from sfsc.engines.selector import context_for_section_choice, run_full_calculation
-from sfsc.exceptions import SFSCBaseError
+from sfsc.exceptions import SFSCBaseError, ValidationError
 from sfsc.models import (
+    AnchorLayoutInput,
+    BasePlateInput,
     CalculationOptions,
     FanSupportInput,
     FanUnit,
+    ImportedModelPayload,
+    ManualLoad,
     SteelFixationInput,
     WalkingSurface,
 )
@@ -33,6 +37,7 @@ from sfsc.ui.components import (
     sidebar_context,
     sidebar_fan,
     sidebar_geometry,
+    sidebar_import,
     sidebar_identification,
     sidebar_modules,
     sidebar_support,
@@ -69,8 +74,12 @@ def _collect_inputs() -> FanSupportInput:
     fan_units_raw, confirm_extended = sidebar_fan.render()
     support = sidebar_support.render()
     context = sidebar_context.render()
+    imported = sidebar_import.render()
     geom = sidebar_geometry.render(support["support_type"])
-    modules = sidebar_modules.render()
+    modules = sidebar_modules.render(support["support_type"], geom["platform_n_beams"])
+
+    if imported["imported_model_error"]:
+        raise ValidationError(imported["imported_model_error"], "imported_model")
 
     fan_units = [
         FanUnit(
@@ -105,6 +114,9 @@ def _collect_inputs() -> FanSupportInput:
         span_mm=geom["span_mm"],
         eccentricity_mm=geom["ecc_mm"],
         hanger_rod_length_mm=geom["hanger_rod_mm"],
+        platform_n_beams=geom["platform_n_beams"],
+        platform_width_mm=geom["platform_width_mm"],
+        platform_length_mm=geom["platform_length_mm"],
         anti_vibration=geom["anti_vib"],
         anti_vibration_static_deflection_mm=geom["av_defl_mm"],
         include_base_plate=geom["include_bp"],
@@ -116,10 +128,24 @@ def _collect_inputs() -> FanSupportInput:
         calculation_mode=modules["calculation_mode"],
         calculation_options=CalculationOptions(**modules["calculation_options"]),
         walking_surface=WalkingSurface(**modules["walking_surface"]),
+        manual_loads=[ManualLoad(**item) for item in modules["manual_loads"]],
         support_fixation_medium=modules["support_fixation_medium"],
         steel_fixation=(
             SteelFixationInput(**modules["steel_fixation"]) if modules["steel_fixation"] else None
         ),
+        base_plate_input=(
+            BasePlateInput(**geom["base_plate_input"]) if geom["base_plate_input"] else None
+        ),
+        anchor_layout=(
+            AnchorLayoutInput(**modules["anchor_layout"]) if modules["anchor_layout"] else None
+        ),
+        imported_model=(
+            ImportedModelPayload(**imported["imported_model"])
+            if imported["imported_model"]
+            else None
+        ),
+        imported_model_confirmed=imported["imported_model_confirmed"],
+        imported_model_confirmation_notes=imported["imported_model_confirmation_notes"],
     )
 
 

@@ -21,8 +21,11 @@ def render() -> dict[str, Any]:
     support_type = SupportType(support_type_val)
 
     cantilever_subtype = None
-    if support_type == SupportType.CANTILEVER_1:
-        csub = st.radio("Subtipo consola", ["pure", "bracketed"], horizontal=True)
+    if support_type in (SupportType.CANTILEVER_1, SupportType.PLATFORM_FRAME_BRACED):
+        label = (
+            "Subtipo consola" if support_type == SupportType.CANTILEVER_1 else "Subtipo plataforma"
+        )
+        csub = st.radio(label, ["pure", "bracketed"], horizontal=True)
         cantilever_subtype = CantileverSubtype(csub)
 
     # ── Modo de cálculo (auditoria M-03: VERIFY exposto na UI) ────────────────

@@ -1,10 +1,4 @@
-"""Sidebar §8 — superfície, meio de fixação e módulos de cálculo opcionais.
-
-Tarefas 1.3, 1.5, 2.2–2.4: o utilizador escolhe a superfície de apoio (tramex
-≠ base plate), o meio de fixação (betão vs estrutura metálica) e quais módulos
-entram no cálculo. As regras de coerência (betão↔ancoragens, aço↔ligações)
-são aplicadas aqui e reforçadas no motor.
-"""
+"""Sidebar section for load surface, fixation, and optional calculation modules."""
 
 from __future__ import annotations
 
@@ -15,8 +9,13 @@ import streamlit as st
 from sfsc.enums import (
     BoltClass,
     CalculationMode,
+    LoadCaseName,
+    LoadDirection,
+    LoadDistributionMethod,
+    ManualLoadType,
     SteelConnectionType,
     SupportFixationMedium,
+    SupportType,
     WalkingSurfaceType,
 )
 from sfsc.i18n import Lang, t
@@ -35,30 +34,171 @@ _FIXATION_KEYS = {
     SupportFixationMedium.MIXED: "fixation.mixed.label",
     SupportFixationMedium.UNKNOWN: "fixation.unknown.label",
 }
+_DISTRIBUTION_KEYS = {
+    LoadDistributionMethod.ONE_WAY: "loadDistribution.oneWay",
+    LoadDistributionMethod.TRIBUTARY_WIDTH: "loadDistribution.tributaryWidth",
+    LoadDistributionMethod.MANUAL: "loadDistribution.manual",
+}
+_MANUAL_TYPE_KEYS = {
+    ManualLoadType.POINT: "manualLoadType.point",
+    ManualLoadType.LINE: "manualLoadType.line",
+    ManualLoadType.AREA: "manualLoadType.area",
+}
+_LOAD_CASE_KEYS = {
+    LoadCaseName.G: "loadCase.G",
+    LoadCaseName.Q: "loadCase.Q",
+    LoadCaseName.EQ: "loadCase.EQ",
+    LoadCaseName.MANUAL: "loadCase.MANUAL",
+}
+_DIRECTION_KEYS = {
+    LoadDirection.GLOBAL_X: "loadDirection.globalX",
+    LoadDirection.GLOBAL_Y: "loadDirection.globalY",
+    LoadDirection.GLOBAL_Z: "loadDirection.globalZ",
+    LoadDirection.LOCAL_Y: "loadDirection.localY",
+    LoadDirection.LOCAL_Z: "loadDirection.localZ",
+}
 
 
-def render(lang: Lang = Lang.PT) -> dict[str, Any]:
-    """Renderiza superfície, fixação, modo e toggles de módulos."""
+def _member_target_options(support_type: SupportType, platform_n_beams: int) -> list[str]:
+    if support_type == SupportType.PLATFORM_FRAME_BRACED:
+        return [f"beam_{index}" for index in range(1, max(2, platform_n_beams) + 1)]
+    return ["primary_member"]
+
+
+def render(
+    support_type: SupportType,
+    platform_n_beams: int,
+    lang: Lang = Lang.PT,
+) -> dict[str, Any]:
+    """Render load surface, fixation, mode, and optional-module controls."""
     st.subheader("8. Superfície e fixação")
 
-    # ── Superfície de apoio (tramex ≠ base plate) ────────────────────────────
+    member_targets = _member_target_options(support_type, platform_n_beams)
+
     surf_type = st.selectbox(
-        "Superfície de apoio (walking surface)",
+        t("sidebar.surface.type", lang),
         list(WalkingSurfaceType),
         format_func=lambda s: t(_SURFACE_KEYS[s], lang),
         help=t("warning.surface.notBasePlate", lang),
     )
     surf_weight = 0.0
+    imposed_load = 0.0
+    maintenance_load = 0.0
     surf_distributed = False
+    distribution_method = LoadDistributionMethod.ONE_WAY
+    surface_targets: list[str] = []
+
     if surf_type != WalkingSurfaceType.NONE:
         surf_weight = st.number_input(
-            "Peso próprio da superfície [kN/m²]", min_value=0.0, value=0.45, step=0.05
+            t("sidebar.surface.selfWeight", lang),
+            min_value=0.0,
+            value=0.45,
+            step=0.05,
+        )
+        imposed_load = st.number_input(
+            t("sidebar.surface.imposedLoad", lang),
+            min_value=0.0,
+            value=0.0,
+            step=0.10,
+        )
+        maintenance_load = st.number_input(
+            t("sidebar.surface.maintenanceLoad", lang),
+            min_value=0.0,
+            value=0.0,
+            step=0.10,
         )
         surf_distributed = st.checkbox(
-            "Carga do equipamento distribuída na superfície", value=False
+            t("sidebar.surface.equipmentDistributed", lang),
+            value=False,
         )
+        distribution_method = st.selectbox(
+            t("sidebar.surface.distributionMethod", lang),
+            list(LoadDistributionMethod),
+            format_func=lambda item: t(_DISTRIBUTION_KEYS[item], lang),
+            help=t("warning.surface.simplifiedDistribution", lang),
+        )
+        if distribution_method == LoadDistributionMethod.MANUAL:
+            surface_targets = st.multiselect(
+                t("sidebar.surface.targetMembers", lang),
+                member_targets,
+                default=[],
+            )
+        st.caption(t("warning.surface.simplifiedDistribution", lang))
 
-    # ── Meio de fixação ──────────────────────────────────────────────────────
+    st.subheader(t("sidebar.surface.manualLoadsHeading", lang))
+    manual_load_count = int(
+        st.number_input(
+            t("sidebar.surface.manualLoadCount", lang),
+            min_value=0,
+            max_value=3,
+            value=0,
+            step=1,
+        )
+    )
+    manual_loads: list[dict[str, object]] = []
+    for index in range(manual_load_count):
+        st.caption(f"{t('sidebar.manualLoad.item', lang)} {index + 1}")
+        name = st.text_input(
+            t("sidebar.manualLoad.name", lang),
+            value=f"manual_{index + 1}",
+            key=f"manual_load_name_{index}",
+        )
+        load_type = st.selectbox(
+            t("sidebar.manualLoad.type", lang),
+            list(ManualLoadType),
+            format_func=lambda item: t(_MANUAL_TYPE_KEYS[item], lang),
+            key=f"manual_load_type_{index}",
+        )
+        load_case = st.selectbox(
+            t("sidebar.manualLoad.case", lang),
+            list(LoadCaseName),
+            format_func=lambda item: t(_LOAD_CASE_KEYS[item], lang),
+            key=f"manual_load_case_{index}",
+        )
+        direction = st.selectbox(
+            t("sidebar.manualLoad.direction", lang),
+            list(LoadDirection),
+            format_func=lambda item: t(_DIRECTION_KEYS[item], lang),
+            key=f"manual_load_direction_{index}",
+        )
+        value = st.number_input(
+            t("sidebar.manualLoad.value", lang),
+            min_value=0.0,
+            value=0.0,
+            step=0.10,
+            key=f"manual_load_value_{index}",
+        )
+        target = st.selectbox(
+            t("sidebar.manualLoad.target", lang),
+            [t("common.none", lang)] + member_targets,
+            key=f"manual_load_target_{index}",
+        )
+        manual_item: dict[str, object] = {
+            "name": name,
+            "load_type": load_type.value,
+            "load_case": load_case.value,
+            "direction": direction.value,
+            "value": value,
+            "target_member_id": None if target == t("common.none", lang) else target,
+        }
+        if load_type == ManualLoadType.LINE:
+            manual_item["loaded_length_m"] = st.number_input(
+                t("sidebar.manualLoad.length", lang),
+                min_value=0.01,
+                value=1.00,
+                step=0.10,
+                key=f"manual_load_length_{index}",
+            )
+        if load_type == ManualLoadType.AREA:
+            manual_item["loaded_area_m2"] = st.number_input(
+                t("sidebar.manualLoad.area", lang),
+                min_value=0.01,
+                value=1.00,
+                step=0.10,
+                key=f"manual_load_area_{index}",
+            )
+        manual_loads.append(manual_item)
+
     fix_medium = st.selectbox(
         "Meio de fixação do suporte",
         list(SupportFixationMedium),
@@ -74,7 +214,10 @@ def render(lang: Lang = Lang.PT) -> dict[str, Any]:
         n_bolts = st.number_input("Número de parafusos", min_value=1, value=4, step=1)
         bolt_cls = st.selectbox("Classe parafuso", [c.value for c in BoltClass], index=2)
         plate_t = st.number_input(
-            "Espessura chapa ligação [mm]", min_value=4.0, value=10.0, step=1.0
+            "Espessura chapa ligação [mm]",
+            min_value=4.0,
+            value=10.0,
+            step=1.0,
         )
         steel_fix = {
             "connection_type": conn_val,
@@ -84,7 +227,6 @@ def render(lang: Lang = Lang.PT) -> dict[str, Any]:
             "plate_thickness_mm": plate_t,
         }
 
-    # ── Modo de cálculo ──────────────────────────────────────────────────────
     st.subheader("9. Modo e módulos")
     mode_val = st.selectbox(
         "Modo de cálculo",
@@ -96,7 +238,6 @@ def render(lang: Lang = Lang.PT) -> dict[str, Any]:
     if mode == CalculationMode.ROBOT_BENCHMARK:
         st.warning(t("benchmark.note", lang))
 
-    # ── Toggles de módulos ───────────────────────────────────────────────────
     c1, c2 = st.columns(2)
     with c1:
         inc_dyn = st.checkbox(t("calculation.modules.dynamicFactor", lang), value=True)
@@ -114,14 +255,70 @@ def render(lang: Lang = Lang.PT) -> dict[str, Any]:
         inc_seis = st.checkbox(t("calculation.modules.seismicEquivalentStatic", lang), value=True)
         inc_serv = st.checkbox(t("calculation.modules.serviceability", lang), value=False)
 
+    anchor_layout = None
+    if fix_medium == SupportFixationMedium.CONCRETE and (inc_bp or inc_anchors):
+        st.caption(t("sidebar.connection.anchorInputs", lang))
+        anchor_count = int(
+            st.number_input(
+                t("sidebar.connection.anchorCount", lang),
+                min_value=0,
+                value=0,
+                step=1,
+            )
+        )
+        anchor_diameter_mm = st.number_input(
+            t("sidebar.connection.anchorDiameter", lang),
+            min_value=0.0,
+            value=0.0,
+            step=2.0,
+        )
+        anchor_spacing_x_mm = st.number_input(
+            t("sidebar.connection.anchorSpacingX", lang),
+            min_value=0.0,
+            value=0.0,
+            step=10.0,
+        )
+        anchor_spacing_y_mm = st.number_input(
+            t("sidebar.connection.anchorSpacingY", lang),
+            min_value=0.0,
+            value=0.0,
+            step=10.0,
+        )
+        anchor_edge_x_mm = st.number_input(
+            t("sidebar.connection.anchorEdgeX", lang),
+            min_value=0.0,
+            value=0.0,
+            step=10.0,
+        )
+        anchor_edge_y_mm = st.number_input(
+            t("sidebar.connection.anchorEdgeY", lang),
+            min_value=0.0,
+            value=0.0,
+            step=10.0,
+        )
+        anchor_layout = {
+            "n_anchors": anchor_count or None,
+            "anchor_diameter_mm": anchor_diameter_mm or None,
+            "spacing_x_mm": anchor_spacing_x_mm or None,
+            "spacing_y_mm": anchor_spacing_y_mm or None,
+            "edge_distance_x_mm": anchor_edge_x_mm or None,
+            "edge_distance_y_mm": anchor_edge_y_mm or None,
+        }
+
     return {
         "walking_surface": {
             "surface_type": surf_type.value,
             "self_weight_kn_m2": surf_weight,
             "equipment_load_distributed": surf_distributed,
+            "imposed_load_kn_m2": imposed_load,
+            "maintenance_load_kn_m2": maintenance_load,
+            "distribution_method": distribution_method.value,
+            "target_member_ids": surface_targets,
         },
+        "manual_loads": manual_loads,
         "support_fixation_medium": fix_medium,
         "steel_fixation": steel_fix,
+        "anchor_layout": anchor_layout,
         "calculation_mode": mode,
         "calculation_options": {
             "include_dynamic_factor": inc_dyn,

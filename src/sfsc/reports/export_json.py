@@ -60,6 +60,19 @@ def export_report_dict(ctx: ReportContext, calc_id: str | None = None) -> dict[s
         "citations": [item.model_dump(mode="json") for item in ctx.citations],
         "assumptions": _expanded_assumptions(ctx.assumptions_declared),
         "limitations": list(ctx.limitations),
+        "engineering_model": (
+            ctx.engineering_model.model_dump(mode="json")
+            if ctx.engineering_model is not None
+            else None
+        ),
+        "engineering_report_state": (
+            ctx.engineering_report_state.model_dump(mode="json")
+            if ctx.engineering_report_state is not None
+            else None
+        ),
+        "import_review": (
+            ctx.import_review.model_dump(mode="json") if ctx.import_review is not None else None
+        ),
     }
 
 

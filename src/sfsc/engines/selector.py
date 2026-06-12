@@ -1,14 +1,16 @@
-"""Orquestrador principal — run_full_calculation()."""
+"""Orquestrador principal - run_full_calculation()."""
 
 from __future__ import annotations
 
 import datetime
 import logging
+import math
 
 from ..catalogs.seismic_catalog import get_seismic_code, get_seismic_factor
 from ..catalogs.steel_section_catalog import get_section
 from ..checks import CheckResult, DiagnosticMessage, aggregate_results, classify_eta
 from ..config import get_dataset_provenance
+from ..engineering import build_phase01_engineering_model
 from ..enums import (
     CalculationMode,
     CheckerStatus,
@@ -24,24 +26,35 @@ from ..enums import (
 from ..exceptions import DatasetMissingError, OutOfScopeError
 from ..models import (
     CitationItem,
+    DiagonalResult,
     FanSupportInput,
     FanSupportResult,
     LoadCombination,
+    PlatformResult,
     ReportContext,
+    SectionVerificationResult,
+    SteelSection,
     WarningItem,
 )
 from ..policy import WeightBand, weight_band, weight_warning
+from ..section_orientation import resolve_section_orientation_deg
 from ..validators import validate_fan_support_input
 from .anchor import calculate_anchor
 from .base_plate import calculate_base_plate
 from .checker import classify, run_checker
+from .connection_verifier import build_phase05_connection_rows
+from .global_frame import run_global_frame_analysis
+from .ifc_import import build_import_review
+from .load_surfaces import build_load_path_summary
 from .loads import calculate_loads
 from .metal_connections import calculate_metal_connection
 from .quantities import calculate_quantities
 from .section_verifier import (
     auto_select_section,
     find_passing_sections,
+    verify_section,
     verify_section_envelope,
+    verify_solver_member_envelope,
 )
 from .steel_fixation import calculate_steel_fixation
 from .support_types.cantilever_1 import calc_cantilever_1
@@ -50,7 +63,10 @@ from .support_types.cantilever_3 import calc_cantilever_3
 from .support_types.combined import calc_combined
 from .support_types.hanger import calc_hanger
 from .support_types.pedestal import calc_pedestal
-from .support_types.platform_frame_braced import calc_platform_frame_braced
+from .support_types.platform_frame_braced import (
+    calc_platform_frame_braced,
+    compute_platform_breakdown,
+)
 
 logger = logging.getLogger("sfsc.selector")
 
@@ -77,7 +93,7 @@ _SUPPORT_ENGINES = {
 
 
 def _legacy_to_check_status(legacy, eta: float) -> CheckStatus:
-    """Mapeia CheckerStatus (legado) + η para o estado granular CheckStatus."""
+    """Mapeia CheckerStatus legado para CheckStatus granular."""
     if legacy == CheckerStatus.FAIL or (eta is not None and eta > 1.0):
         return CheckStatus.FAIL
     if legacy == CheckerStatus.MARGINAL or (eta is not None and eta >= 0.85):
@@ -118,8 +134,6 @@ def context_for_section_choice(ctx: ReportContext, designation: str) -> ReportCo
     if selected_ctx.fan_support_result:
         selected_ctx.fan_support_result.section_options = res.section_options
     selected_ctx.fan_support_input = inp
-    # Registar no contexto que o perfil foi escolhido pelo utilizador (M-04):
-    # o memorial deixa de sugerir que esta foi a recomendação automática.
     selected_ctx.warnings.append(
         WarningItem(
             code="W-SEC-CHOICE",
@@ -140,35 +154,118 @@ def _uls_action_combos(combinations: list[LoadCombination]) -> list[LoadCombinat
     return uls or list(combinations)
 
 
+def _platform_support_steel_weight_kg(inp: FanSupportInput, section: SteelSection) -> float:
+    n_beams = max(2, inp.platform_n_beams)
+    beam_length_m = inp.platform_length_eff_mm / 1_000.0
+    steel_kg = section.weight_kgm * n_beams * beam_length_m
+    if inp.cantilever_subtype is None or inp.cantilever_subtype.value == "bracketed":
+        diagonal_length_m = (
+            math.hypot(inp.platform_length_eff_mm, inp.installation_height_mm) / 1_000.0
+        )
+        steel_kg += section.weight_kgm * n_beams * diagonal_length_m
+    return steel_kg
+
+
+def _verify_platform_diagonal(
+    inp: FanSupportInput,
+    section: SteelSection,
+    combinations: list[LoadCombination],
+    struct_code: StructuralCode,
+    orientation_deg: float,
+) -> DiagonalResult | None:
+    breakdown = compute_platform_breakdown(inp, combinations)
+    if not breakdown.braced or breakdown.diagonal_force_kN <= 0.0:
+        return None
+
+    diag_combo = LoadCombination(
+        name="platform_diagonal",
+        N_kN=breakdown.diagonal_force_kN,
+        member_level=True,
+        description=f"Compressão na diagonal = {breakdown.diagonal_force_kN:.2f} kN",
+    )
+    diag_sec = verify_section(
+        section,
+        diag_combo,
+        struct_code,
+        inp.steel_grade,
+        0.0,
+        breakdown.diagonal_length_mm,
+        orientation_deg,
+        include_ltb=False,
+        include_biaxial=False,
+    )
+    eta_axial = diag_sec.utilization_by_check.get("axial", 0.0)
+    eta_buckling = diag_sec.utilization_by_check.get("buckling_z", 0.0)
+    eta = max(eta_axial, eta_buckling)
+    status = (
+        CheckerStatus.FAIL
+        if eta > 1.0
+        else CheckerStatus.MARGINAL
+        if eta > 0.90
+        else CheckerStatus.PASS
+    )
+    return DiagonalResult(
+        n_diagonals=breakdown.n_beams,
+        angle_deg=breakdown.diagonal_angle_deg,
+        length_mm=breakdown.diagonal_length_mm,
+        axial_force_kN=round(breakdown.diagonal_force_kN, 3),
+        section=section,
+        utilization_compression=round(eta_axial, 4),
+        utilization_buckling=round(eta_buckling, 4),
+        utilization_ratio=round(eta, 4),
+        status=status,
+        warnings=diag_sec.warnings,
+    )
+
+
 def run_full_calculation(inp: FanSupportInput) -> ReportContext:
     """
     Fluxo completo:
-    1. Validação (política de peso sfsc.policy)
+    1. Validação
     2. Código estrutural e factor sísmico
-    3. Cargas e combinações de ACÇÕES totais
-    4. Motor do tipo de suporte → esforços no ELEMENTO para TODAS as combinações
-    5. Selecção/verificação da secção contra o envelope ULS (inclui sísmica)
-    6. Mesa (se activada) — envelope de acções totais
-    7. Ancoragens/varões — por tipo de suporte
-    8. Ligações metálicas — esforços do elemento governantes
-    9. Checker final + classificação
-    10. ReportContext com citações normativas
+    3. Cargas e combinações de acções totais
+    4. Motor do tipo de suporte -> esforços no elemento
+    5. Selecção/verificação da secção contra o envelope ULS
+    6. Mesa/base plate, ancoragens e ligações
+    7. Diagnóstico modular + checker final
+    8. ReportContext com citações normativas
     """
     citations: list[CitationItem] = []
     warn_items: list[WarningItem] = []
     assumptions: list[str] = []
     recovered_statuses: list[CheckerStatus] = []
 
-    # ── 1. Validação ──────────────────────────────────────────────────────────
     validate_fan_support_input(inp)
+    import_review = (
+        build_import_review(
+            inp.imported_model,
+            confirmed=inp.imported_model_confirmed,
+            confirmed_by=inp.prepared_by or None,
+            confirmation_notes=inp.imported_model_confirmation_notes,
+        )
+        if inp.imported_model is not None
+        else None
+    )
 
-    # ── 1b. Opções de cálculo efetivas (módulos opcionais — tarefa 1.3/1.5) ──
+    if import_review is not None:
+        for item in import_review.warnings:
+            warn_items.append(
+                WarningItem(
+                    code=item.code,
+                    severity=item.severity,
+                    message=item.message,
+                    module="ifc_import",
+                )
+            )
+
     opts = inp.calculation_options
+    orientation_deg = resolve_section_orientation_deg(
+        inp.section_orientation,
+        inp.section_rotation_deg,
+    )
     is_benchmark = inp.calculation_mode == CalculationMode.ROBOT_BENCHMARK
     is_steel_fix = inp.support_fixation_medium == SupportFixationMedium.STEEL_STRUCTURE
 
-    # Aceita a opção nova OU o flag legado include_base_plate (robusto a
-    # model_copy, que não re-corre os validators de sincronização).
     eff_base_plate = (opts.include_base_plate or inp.include_base_plate) and not is_benchmark
     eff_anchors = opts.include_anchors and not is_benchmark and not is_steel_fix
     eff_steel_conn = (opts.include_steel_connections and not is_benchmark) or (
@@ -225,7 +322,7 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 severity="WARNING",
                 message=(
                     f"Classe de exposição '{inp.exposure_class.value}': prever protecção "
-                    "anticorrosiva adequada (galvanização/pintura ≥ C4; em ambiente "
+                    "anticorrosiva adequada (galvanização/pintura >= C4; em ambiente "
                     "corrosivo considerar aço inox A4 nas fixações). A protecção não é "
                     "dimensionada por este modelo."
                 ),
@@ -233,7 +330,6 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             )
         )
 
-    # ── 2. Código e sismo ─────────────────────────────────────────────────────
     struct_code = resolve_structural_code(inp.country)
     seismic_code = get_seismic_code(inp.country)
     ag_g, zone_used = get_seismic_factor(inp.country, inp.seismic_zone)
@@ -257,7 +353,7 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 code="W-SEISMIC-002",
                 severity="WARNING",
                 message=(
-                    f"Zona sísmica '{inp.seismic_zone}' não encontrada para {inp.country.value} — "
+                    f"Zona sísmica '{inp.seismic_zone}' não encontrada para {inp.country.value} - "
                     f"usada zona default '{zone_used}' (ag/g = {ag_g})."
                 ),
                 module="selector",
@@ -265,50 +361,159 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             )
         )
     assumptions.append("A-GEN-003")
+    assumptions.append("A-ORI-001")
 
-    citations.append(
-        CitationItem(
-            standard_id=struct_code.value,
-            clause="cl. 6.2 + 6.3",
-            description="Verificação de secções e elementos estruturais",
-        )
-    )
-    citations.append(
-        CitationItem(
-            standard_id=seismic_code.value,
-            clause="Tabela NA — factores sísmicos por zona",
-            description="Factor de aceleração de projecto ag/g",
-        )
-    )
-    citations.append(
-        CitationItem(
-            standard_id="EN1990",
-            clause="cl. 6.4.3.2",
-            description="Combinações de acções ULS fundamental e sísmica",
-        )
-    )
-    citations.append(
-        CitationItem(
-            standard_id="VDI3840",
-            clause="Factor dinâmico 1.5",
-            description="Factor de amplificação dinâmica para ventiladores industriais",
-        )
+    citations.extend(
+        [
+            CitationItem(
+                standard_id=struct_code.value,
+                clause="cl. 6.2 + 6.3",
+                description="Verificação de secções e elementos estruturais",
+            ),
+            CitationItem(
+                standard_id=seismic_code.value,
+                clause="Tabela NA - factores sísmicos por zona",
+                description="Factor de aceleração de projecto ag/g",
+            ),
+            CitationItem(
+                standard_id="EN1990",
+                clause="cl. 6.4.3.2",
+                description="Combinações de acções ULS fundamental e sísmica",
+            ),
+            CitationItem(
+                standard_id="VDI3840",
+                clause="Factor dinâmico 1.5",
+                description="Factor de amplificação dinâmica para ventiladores industriais",
+            ),
+        ]
     )
 
-    # ── 3. Cargas (combinações de ACÇÕES totais) ──────────────────────────────
-    # Os toggles afetam realmente o cálculo: fator dinâmico → 1.0 se desativado;
-    # ag/g → 0.0 se a sísmica simplificada estiver desativada ou em benchmark.
     ag_g_eff = ag_g if eff_seismic else 0.0
     loads_inp = inp if eff_dynamic else inp.model_copy(update={"dynamic_factor": 1.0})
+    load_path_summary = build_load_path_summary(loads_inp)
+    if load_path_summary.requires_engineer_review:
+        warn_items.append(
+            WarningItem(
+                code="W-SURF-REVIEW",
+                severity="WARNING",
+                message=(
+                    "Load surface or manual load distribution requires engineer review before "
+                    "it can be treated as a verified structural input."
+                ),
+                module="load_surfaces",
+            )
+        )
+    for warning in load_path_summary.warnings:
+        warn_items.append(
+            WarningItem(
+                code="W-SURF",
+                severity="INFO",
+                message=warning,
+                module="load_surfaces",
+            )
+        )
+
+    def _select_section(
+        section_member_combos: list[LoadCombination],
+        buckling_y_mm: float,
+        buckling_z_mm: float,
+    ) -> tuple[
+        SteelSection | None,
+        SectionVerificationResult | None,
+        list[SectionVerificationResult],
+        list[CheckerStatus],
+        list[WarningItem],
+    ]:
+        local_recovered: list[CheckerStatus] = []
+        local_warnings: list[WarningItem] = []
+        section = None
+        sec_result = None
+        section_options = []
+
+        if inp.operation_mode == OperationMode.VERIFY:
+            assert inp.received_section_family is not None
+            assert inp.received_section_tag is not None
+            try:
+                section = get_section(inp.received_section_family, inp.received_section_tag)
+            except DatasetMissingError as exc:
+                local_recovered.append(CheckerStatus.DATASET_MISSING)
+                local_warnings.append(
+                    WarningItem(
+                        code="W-DATASET-001",
+                        severity="CRITICAL",
+                        message=(
+                            f"Perfil '{inp.received_section_tag}' não encontrado no catálogo "
+                            f"({exc.message}). Verificação de secção não realizada."
+                        ),
+                        module="selector",
+                    )
+                )
+            if section is not None:
+                sec_result = verify_section_envelope(
+                    section,
+                    section_member_combos,
+                    struct_code,
+                    inp.steel_grade,
+                    buckling_y_mm,
+                    buckling_z_mm,
+                    orientation_deg,
+                    include_ltb=eff_ltb,
+                    include_biaxial=eff_biaxial,
+                )
+                section_options = [sec_result]
+        else:
+            section_options = find_passing_sections(
+                section_member_combos,
+                struct_code,
+                inp.steel_grade,
+                inp.preferred_section_families,
+                buckling_y_mm,
+                buckling_z_mm,
+                max_utilization=1.0,
+                orientation_deg=orientation_deg,
+                include_ltb=eff_ltb,
+                include_biaxial=eff_biaxial,
+            )
+            if section_options:
+                conservative = [opt for opt in section_options if opt.utilization_ratio <= 0.90]
+                sec_result = (conservative or section_options)[0]
+                section = sec_result.section
+            else:
+                try:
+                    section, sec_result = auto_select_section(
+                        section_member_combos,
+                        struct_code,
+                        inp.steel_grade,
+                        inp.preferred_section_families,
+                        buckling_y_mm,
+                        buckling_z_mm,
+                        orientation_deg=orientation_deg,
+                        include_ltb=eff_ltb,
+                        include_biaxial=eff_biaxial,
+                    )
+                except OutOfScopeError as exc:
+                    local_recovered.append(CheckerStatus.OUT_OF_SCOPE)
+                    local_warnings.append(
+                        WarningItem(
+                            code="W-SCOPE-001",
+                            severity="CRITICAL",
+                            message=(
+                                "Nenhum perfil das famílias seleccionadas verifica o envelope "
+                                f"de combinações ({exc.message}). Cálculo marcado OUT_OF_SCOPE - "
+                                "rever geometria, aço ou famílias de perfis."
+                            ),
+                            module="selector",
+                        )
+                    )
+
+        return section, sec_result, section_options, local_recovered, local_warnings
+
     total_weight_kN, action_combos = calculate_loads(loads_inp, struct_code, ag_g_eff)
-    assumptions.append("A-GEN-001")
-    assumptions.append("A-GEN-002")
-    assumptions.append("A-STR-002")
+    assumptions.extend(["A-GEN-001", "A-GEN-002", "A-STR-002"])
 
     uls_actions = _uls_action_combos(action_combos)
     design_load_kN = max(abs(c.V_z_kN) for c in uls_actions)
 
-    # ── 4. Motor do tipo de suporte (TODAS as combinações → elemento) ─────────
     engine_fn = _SUPPORT_ENGINES[inp.support_type]
     member_combos, Lcr_y_mm, Lcr_z_mm = engine_fn(
         inp,
@@ -316,85 +521,147 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         action_combos,
         struct_code,
     )
-    assumptions.append("A-STR-001")
-    assumptions.append("A-STR-003")
+    assumptions.extend(["A-STR-001", "A-STR-003"])
 
-    # ── 5. Secção (envelope ULS — inclui combinação sísmica) ─────────────────
-    section = None
-    sec_result = None
-    section_options = []
+    section, sec_result, section_options, section_recovered, section_warn_items = _select_section(
+        member_combos,
+        Lcr_y_mm,
+        Lcr_z_mm,
+    )
+    recovered_statuses.extend(section_recovered)
+    warn_items.extend(section_warn_items)
 
-    if inp.operation_mode == OperationMode.VERIFY:
-        # O model_validator de FanSupportInput garante estes campos em modo VERIFY.
-        assert inp.received_section_family is not None
-        assert inp.received_section_tag is not None
-        try:
-            section = get_section(inp.received_section_family, inp.received_section_tag)
-        except DatasetMissingError as exc:
-            recovered_statuses.append(CheckerStatus.DATASET_MISSING)
-            warn_items.append(
-                WarningItem(
-                    code="W-DATASET-001",
-                    severity="CRITICAL",
-                    message=(
-                        f"Perfil '{inp.received_section_tag}' não encontrado no catálogo "
-                        f"({exc.message}). Verificação de secção não realizada."
-                    ),
-                    module="selector",
-                )
-            )
-        if section is not None:
-            sec_result = verify_section_envelope(
-                section,
+    if inp.support_type == SupportType.PLATFORM_FRAME_BRACED and section is not None:
+        steel_weight_kg = _platform_support_steel_weight_kg(inp, section)
+        total_weight_kN, action_combos = calculate_loads(
+            loads_inp,
+            struct_code,
+            ag_g_eff,
+            support_steel_weight_kg=steel_weight_kg,
+        )
+        uls_actions = _uls_action_combos(action_combos)
+        design_load_kN = max(abs(c.V_z_kN) for c in uls_actions)
+        member_combos, Lcr_y_mm, Lcr_z_mm = engine_fn(
+            inp,
+            total_weight_kN,
+            action_combos,
+            struct_code,
+        )
+        section, sec_result, section_options, section_recovered, section_warn_items = (
+            _select_section(
                 member_combos,
-                struct_code,
-                inp.steel_grade,
                 Lcr_y_mm,
                 Lcr_z_mm,
-                include_ltb=eff_ltb,
-                include_biaxial=eff_biaxial,
             )
-            section_options = [sec_result]
-    else:
-        section_options = find_passing_sections(
-            member_combos,
-            struct_code,
-            inp.steel_grade,
-            inp.preferred_section_families,
-            Lcr_y_mm,
-            Lcr_z_mm,
-            max_utilization=1.0,
-            include_ltb=eff_ltb,
-            include_biaxial=eff_biaxial,
         )
-        if section_options:
-            conservative = [opt for opt in section_options if opt.utilization_ratio <= 0.90]
-            sec_result = (conservative or section_options)[0]
-            section = sec_result.section
-        else:
+        recovered_statuses.extend(section_recovered)
+        warn_items.extend(section_warn_items)
+
+    platform_result = None
+    global_frame_result = None
+    member_check_rows: list[dict[str, object]] = []
+    connection_check_rows: list[dict[str, object]] = []
+    _GLOBAL_FRAME_TYPES = {
+        SupportType.CANTILEVER_1,
+        SupportType.HANGER,
+        SupportType.CANTILEVER_2,
+        SupportType.CANTILEVER_3,
+        SupportType.PEDESTAL,
+        SupportType.COMBINED,
+        SupportType.PLATFORM_FRAME_BRACED,
+    }
+    if section is not None and inp.support_type in _GLOBAL_FRAME_TYPES and not is_benchmark:
+        global_frame_result = run_global_frame_analysis(
+            inp,
+            action_combos,
+            section,
+            orientation_deg,
+        )
+        for warning in global_frame_result.warnings:
+            warn_items.append(
+                WarningItem(
+                    code="W-GFRAME",
+                    severity="WARNING" if global_frame_result.failed else "INFO",
+                    message=warning,
+                    module="global_frame",
+                )
+            )
+        if global_frame_result.supported and global_frame_result.solved and not global_frame_result.failed:
             try:
-                section, sec_result = auto_select_section(
-                    member_combos,
+                _all_member_ids = {str(m["id"]) for m in global_frame_result.members}
+                buckling_overrides_mm = {mid: (Lcr_y_mm, Lcr_z_mm) for mid in _all_member_ids}
+                sec_result, member_check_rows = verify_solver_member_envelope(
+                    section,
+                    global_frame_result.nodes,
+                    global_frame_result.members,
+                    global_frame_result.member_end_forces,
                     struct_code,
                     inp.steel_grade,
-                    inp.preferred_section_families,
-                    Lcr_y_mm,
-                    Lcr_z_mm,
+                    orientation_deg,
+                    buckling_length_overrides_mm=buckling_overrides_mm,
                     include_ltb=eff_ltb,
-                    include_biaxial=eff_biaxial,
                 )
-            except OutOfScopeError as exc:
-                recovered_statuses.append(CheckerStatus.OUT_OF_SCOPE)
+                if inp.operation_mode == OperationMode.VERIFY:
+                    section_options = [sec_result]
+                else:
+                    section_options = [
+                        sec_result
+                        if option.section.designation == section.designation
+                        and option.section.family == section.family
+                        else option
+                        for option in section_options
+                    ]
+            except ValueError as exc:
                 warn_items.append(
                     WarningItem(
-                        code="W-SCOPE-001",
+                        code="W-MEMBER-CHECKS",
+                        severity="WARNING",
+                        message=(
+                            "Solver member verification could not be completed; "
+                            f"falling back to the simplified member envelope ({exc})."
+                        ),
+                        module="section_verifier",
+                    )
+                )
+        connection_check_rows = build_phase05_connection_rows(
+            inp,
+            solver_engine="global_frame",
+            solver_failed=global_frame_result.failed,
+            solver_reactions=global_frame_result.reactions,
+            section=section,
+        )
+        for row in connection_check_rows:
+            status = str(row.get("status", ""))
+            missing_value = row.get("missing_inputs", [])
+            missing = (
+                [str(item) for item in missing_value]
+                if isinstance(missing_value, list)
+                else []
+            )
+            if status == "not_verified":
+                warn_items.append(
+                    WarningItem(
+                        code="W-CONN-NV",
+                        severity="WARNING",
+                        message=(
+                            "Connection check remains not verified for "
+                            f"{row.get('type')} at support {row.get('support_id')} "
+                            f"because explicit inputs are missing: {', '.join(missing) or 'n/d'}."
+                        ),
+                        module="connection_verifier",
+                    )
+                )
+            elif status == "failed":
+                warn_items.append(
+                    WarningItem(
+                        code="W-CONN-FAIL",
                         severity="CRITICAL",
                         message=(
-                            "Nenhum perfil das famílias seleccionadas verifica o envelope "
-                            f"de combinações ({exc.message}). Cálculo marcado OUT_OF_SCOPE — "
-                            "rever geometria, aço ou famílias de perfis."
+                            "Connection verification failed for "
+                            f"{row.get('type')} at support {row.get('support_id')} "
+                            f"(η={row.get('utilization_ratio')})."
                         ),
-                        module="selector",
+                        module="connection_verifier",
                     )
                 )
 
@@ -404,7 +671,6 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 WarningItem(code="W-SEC", severity="WARNING", message=w, module="section_verifier")
             )
 
-    # Combinação governante ao nível do elemento (a que produz o η máximo)
     if sec_result and sec_result.governing_combination:
         governing_member = next(
             (c for c in member_combos if c.name == sec_result.governing_combination),
@@ -424,7 +690,65 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         c.model_copy(update={"governing": c.name == governing_member.name}) for c in action_combos
     ]
 
-    # ── 6. Mesa — envelope de acções totais (V_z e V_y máximos ULS) ──────────
+    if inp.support_type == SupportType.PLATFORM_FRAME_BRACED and section is not None:
+        platform_breakdown = compute_platform_breakdown(inp, action_combos)
+        diagonal_result = _verify_platform_diagonal(
+            inp,
+            section,
+            action_combos,
+            struct_code,
+            orientation_deg,
+        )
+        steel_weight_kg = _platform_support_steel_weight_kg(inp, section)
+        platform_result = PlatformResult(
+            n_beams=platform_breakdown.n_beams,
+            braced=platform_breakdown.braced,
+            width_mm=round(inp.platform_width_eff_mm, 1),
+            length_mm=round(inp.platform_length_eff_mm, 1),
+            area_m2=round(inp.platform_area_m2, 3),
+            surface_weight_kn_m2=inp.walking_surface.self_weight_kn_m2,
+            surface_weight_kg=round(inp.platform_surface_weight_kg, 1),
+            steel_weight_kg=round(steel_weight_kg, 1),
+            load_per_beam_kN=platform_breakdown.load_per_beam_kN,
+            moment_per_beam_kNm=platform_breakdown.moment_per_beam_kNm,
+            axial_per_beam_kN=platform_breakdown.axial_per_beam_kN,
+            load_distribution_method=inp.walking_surface.distribution_method.value,
+            load_surface_components=load_path_summary.surface_components,
+            distributed_line_loads=load_path_summary.distributed_line_loads,
+            manual_loads_applied=load_path_summary.manual_loads_applied,
+            diagonal=diagonal_result,
+            warnings=load_path_summary.warnings,
+        )
+        citations.append(
+            CitationItem(
+                standard_id="EN1991-1-1",
+                clause="cl. 6.3 + Anexo A",
+                description="Peso próprio da superfície e da estrutura da plataforma",
+            )
+        )
+        if diagonal_result:
+            for w in diagonal_result.warnings:
+                warn_items.append(
+                    WarningItem(
+                        code="W-DIAG",
+                        severity="WARNING",
+                        message=w,
+                        module="platform_diagonal",
+                    )
+                )
+            if diagonal_result.status == CheckerStatus.FAIL:
+                warn_items.append(
+                    WarningItem(
+                        code="W-DIAG-FAIL",
+                        severity="CRITICAL",
+                        message=(
+                            "A diagonal / mão-francesa não verifica à compressão ou "
+                            f"encurvadura (η={diagonal_result.utilization_ratio:.2f})."
+                        ),
+                        module="platform_diagonal",
+                    )
+                )
+
     bp_result = None
     if eff_base_plate and section:
         action_envelope = LoadCombination(
@@ -440,8 +764,7 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             struct_code,
             inp.concrete_grade,
         )
-        assumptions.append("A-BP-001")
-        assumptions.append("A-BP-002")
+        assumptions.extend(["A-BP-001", "A-BP-002"])
         citations.append(
             CitationItem(
                 standard_id="EN1993-1-8",
@@ -454,7 +777,6 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 WarningItem(code="W-BP", severity="INFO", message=w, module="base_plate")
             )
 
-    # ── 7. Fixação: ancoragens em betão (EN 1992-4) OU ligação aço-aço (EN 1993-1-8) ──
     anc_result = None
     steel_fix_result = None
     if eff_anchors:
@@ -471,7 +793,7 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 CitationItem(
                     standard_id="EN1993-1-8",
                     clause="Tab. 3.4",
-                    description="Varões roscados de suspensão — tracção, corte e interacção",
+                    description="Varões roscados de suspensão - tracção, corte e interacção",
                 )
             )
         else:
@@ -479,7 +801,7 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 CitationItem(
                     standard_id="EN1992-4",
                     clause="cl. 7.2.1 + 7.2.2",
-                    description="Dimensionamento de ancoragens — tracção, corte e interacção",
+                    description="Dimensionamento de ancoragens - tracção, corte e interacção",
                 )
             )
         for w in anc_result.warnings:
@@ -501,13 +823,12 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 severity="WARNING",
                 message=(
                     "Elemento receptor (perfil existente) não verificado por este "
-                    "modelo — verificar separadamente."
+                    "modelo - verificar separadamente."
                 ),
                 module="steel_fixation",
             )
         )
 
-    # ── 8. Ligações metálicas ─────────────────────────────────────────────────
     metal_conn_result = None
     if section and eff_steel_conn:
         metal_conn_result = calculate_metal_connection(
@@ -531,13 +852,11 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 )
             )
 
-    # ── 8b. Breakdown modular granular + agregação (tarefa 1.1/1.2/secção 3) ──
     breakdown: list[CheckResult] = []
 
     def _msg(severity: str, key: str) -> DiagnosticMessage:
         return DiagnosticMessage(severity=severity, key=key)
 
-    # Perfil metálico (excluindo LTB, que é módulo próprio).
     if sec_result:
         non_ltb = {k: v for k, v in sec_result.utilization_by_check.items() if k != "ltb"}
         eta_section = max(non_ltb.values(), default=0.0)
@@ -566,7 +885,6 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             )
         )
 
-    # Base plate
     if eff_base_plate and bp_result:
         breakdown.append(
             CheckResult(
@@ -587,7 +905,6 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             )
         )
 
-    # Ancoragens em betão
     if eff_anchors and anc_result:
         eta_anc = anc_result.utilization_combined
         breakdown.append(
@@ -614,7 +931,6 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             )
         )
 
-    # Ligações metálicas (internas) e/ou fixação aço-aço à estrutura existente.
     steel_etas = []
     steel_clauses = []
     if metal_conn_result:
@@ -648,7 +964,6 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             )
         )
 
-    # Sísmica simplificada — informativa (embebida nas combinações, sem η próprio).
     breakdown.append(
         CheckResult(
             id=ModuleId.SEISMIC_EQUIVALENT_STATIC,
@@ -659,21 +974,46 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         )
     )
 
-    # Superfície de distribuição (tramex) — informativa, nunca base plate.
-    if inp.walking_surface.surface_type.value != "none":
+    breakdown.append(
+        CheckResult(
+            id=ModuleId.SERVICEABILITY,
+            label_key="calculation.modules.serviceability",
+            status=CheckStatus.NOT_CHECKED,
+            messages=[
+                _msg("warning", "warning.serviceability.notImplemented")
+                if opts.include_serviceability
+                else _msg("warning", "warning.module.disabled")
+            ],
+        )
+    )
+
+    if inp.walking_surface.surface_type.value != "none" or inp.manual_loads:
         breakdown.append(
             CheckResult(
                 id=ModuleId.LOAD_DISTRIBUTION_SURFACE,
                 label_key="calculation.modules.loadDistributionSurface",
-                status=CheckStatus.INFORMATIVE,
-                inputs={"surface_type": inp.walking_surface.surface_type.value},
-                messages=[_msg("info", "warning.surface.notBasePlate")],
+                status=CheckStatus.MARGINAL
+                if load_path_summary.requires_engineer_review
+                else CheckStatus.INFORMATIVE,
+                inputs={
+                    "surface_type": inp.walking_surface.surface_type.value,
+                    "distribution_method": inp.walking_surface.distribution_method.value,
+                    "manual_load_count": float(len(inp.manual_loads)),
+                },
+                messages=[
+                    _msg("info", "warning.surface.notBasePlate"),
+                    _msg(
+                        "warning" if load_path_summary.requires_engineer_review else "info",
+                        "warning.surface.requiresEngineerReview"
+                        if load_path_summary.requires_engineer_review
+                        else "warning.surface.simplifiedDistribution",
+                    ),
+                ],
             )
         )
 
     aggregate = aggregate_results(breakdown)
 
-    # ── 9. Checker + classificação ────────────────────────────────────────────
     fan_result = FanSupportResult(
         support_tag=inp.support_tag,
         support_type=inp.support_type,
@@ -685,6 +1025,26 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         governing_load_combination=governing_member,
         all_combinations=action_combos,
         member_forces=member_combos,
+        solver_engine=(
+            "global_frame"
+            if global_frame_result is not None and global_frame_result.supported
+            else "simplified"
+        ),
+        solver_failed=global_frame_result.failed if global_frame_result is not None else False,
+        solver_nodes=global_frame_result.nodes if global_frame_result is not None else [],
+        solver_members=global_frame_result.members if global_frame_result is not None else [],
+        solver_supports=global_frame_result.supports if global_frame_result is not None else [],
+        solver_releases=global_frame_result.releases if global_frame_result is not None else [],
+        solver_reactions=global_frame_result.reactions if global_frame_result is not None else [],
+        solver_displacements=(
+            global_frame_result.displacements if global_frame_result is not None else []
+        ),
+        solver_member_end_forces=(
+            global_frame_result.member_end_forces if global_frame_result is not None else []
+        ),
+        solver_warnings=global_frame_result.warnings if global_frame_result is not None else [],
+        member_check_rows=member_check_rows,
+        connection_check_rows=connection_check_rows,
         recommended_section=section,
         section_verification=sec_result,
         section_options=section_options,
@@ -692,6 +1052,7 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         anchor=anc_result,
         steel_fixation=steel_fix_result,
         metal_connection=metal_conn_result,
+        platform=platform_result,
         warnings=[w.message for w in warn_items],
         assumptions_used=list(dict.fromkeys(assumptions)),
         module_breakdown=aggregate.checks,
@@ -702,6 +1063,11 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
     fan_result.status = run_checker(inp, fan_result, extra_statuses=recovered_statuses)
     fan_result.classification_level = classify(inp, fan_result)
     fan_result.quantities = calculate_quantities(inp, fan_result)
+    engineering_model, engineering_report_state = build_phase01_engineering_model(
+        inp,
+        fan_result,
+        import_review=import_review,
+    )
 
     if fan_result.classification_level.value == "REQUIRES_SPECIALIST":
         warn_items.append(
@@ -722,14 +1088,18 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             WarningItem(
                 code="W-VIB-001",
                 severity="WARNING",
-                message="Anti-vibração: dimensionamento dinâmico das molas/silentblocks fora do âmbito (A-VIB-001).",
+                message=(
+                    "Anti-vibração: dimensionamento dinâmico das molas/silentblocks "
+                    "fora do âmbito (A-VIB-001)."
+                ),
                 module="selector",
             )
         )
 
     assumptions.append("A-FAT-001")
+    fan_result.warnings = [w.message for w in warn_items]
+    fan_result.assumptions_used = list(dict.fromkeys(assumptions))
 
-    # ── 10. ReportContext ─────────────────────────────────────────────────────
     ctx = ReportContext(
         project_name=inp.project_name,
         support_tag=inp.support_tag,
@@ -745,16 +1115,31 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             **get_dataset_provenance(),
             "options_fingerprint": inp.calculation_options.fingerprint(),
             "calculation_mode": inp.calculation_mode.value,
+            "calculation_model_type": engineering_model.structure.calculation_model.value,
+            "import_source_type": (
+                import_review.source.source_type if import_review is not None else None
+            ),
+            "import_file_name": (
+                import_review.source.file_name if import_review is not None else None
+            ),
+            "import_confirmed": import_review.confirmed if import_review is not None else False,
         },
         limitations=[
             "Análise dinâmica de vibrações fora do âmbito (A-VIB-001).",
             "Verificação de fadiga (EN 1993-1-9) fora do âmbito (A-FAT-001).",
+            "O modelo estrutural atual é simplificado e não corresponde a um global frame solver.",
+            "Os resultados de serviceability permanecem não verificados enquanto não existir cálculo de deslocamentos.",
+            "As verificações de ligação só podem ser tratadas como verificadas quando existirem reações do solver e inputs explícitos de ligação; caso contrário permanecem não verificadas.",
             "Dimensionamento de fundações / maciços de betão fora do âmbito.",
-            "Ligações soldadas verificadas por tensão nominal — sem análise de raiz.",
+            "Ligações soldadas verificadas por tensão nominal - sem análise de raiz.",
             "Execução assume Classe EXC2 conforme EN 1090.",
-            "Acção sísmica por força estática equivalente (sem espectro de resposta) — preliminar.",
+            "Acção sísmica por força estática equivalente (sem espectro de resposta) - preliminar.",
             "Campos informativos sem efeito no cálculo: peso vazio, potência, rotação, tipo de fixação do ventilador.",
+            "Geometria BIM/IFC importada permanece assistida e revista pelo utilizador; não substitui automaticamente o modelo activo de cálculo.",
         ],
+        engineering_model=engineering_model,
+        engineering_report_state=engineering_report_state,
+        import_review=import_review,
     )
 
     logger.info(

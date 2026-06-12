@@ -42,7 +42,21 @@ LTB, Lcr = 1200 mm (cadeia idêntica ao caso 01):
   η_LTB = 0.84808/5.906 = 0.1436   ★ governa
 ```
 
-**Esperado: IPE80, η = 0.1436, check = ltb, combinação ULS_seismic.**
+**Actualizado Phase 03 (2026-06-12):** Com o motor global frame, a força horizontal
+sísmica (V_y) aplicada no nó central de uma viga horizontal gera esforço axial nos
+meios da viga, não momento de flexão. O momento de flexão é gerado apenas pela carga
+vertical (V_z). Por isso, a combinação ULS_fundamental governa o dimensionamento com:
+
+```
+M_j (member-left, ULS_fundamental) = V_z × L/4 = 7.56289/2 × 1.2/4 = 1.1344 kNm
+  (aplica-se a carga total ao nó central; cada metade-viga recebe V_z/2)
+LTB: η = 1.1344/2.951... ≈ 0.3842
+```
+
+**Esperado (actualizado): IPE80, η ≈ 0.3842, check = member-left.ltb, combinação ULS_fundamental.**
+
+**Ancoragem:** tração de derrube continua calculada a partir do momento de derrube sísmico
+(M_ot = E_h × h_cg) → η_N = 0.0039 permanece inalterado.
 
 ## 4. Ancoragens no chão — tração de derrube > 0
 

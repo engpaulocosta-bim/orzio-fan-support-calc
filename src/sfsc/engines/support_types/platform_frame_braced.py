@@ -1,64 +1,124 @@
-"""PLATFORM_FRAME_BRACED — plataforma metálica com quadro superior e escoras.
-
-Modelo recomendado para casos tipo Robot: quadro metálico superior (vigas +
-travessas) com tramex/grelha, contraventado por escoras/diagonais inferiores
-ligadas a estrutura existente.
-
-Modelo simplificado:
-  - Viga superior dimensionante: biapoiada, carga vertical central → M = P·L/4;
-    soma o peso próprio da superfície (tramex) como carga distribuída.
-  - Diagonais/escoras absorvem a acção horizontal (axial nas escoras), pelo que
-    o momento de eixo fraco na viga é pequeno (quadro contraventado).
-  - Encurvadura: Lcr_y = L (viga), Lcr_z = 0.5·L (travado pelas travessas).
-"""
+"""PLATFORM_FRAME_BRACED - plataforma metálica com N vigas paralelas."""
 
 from __future__ import annotations
 
-from ...enums import StructuralCode
+import math
+from dataclasses import dataclass
+
+from ...enums import CantileverSubtype, StructuralCode
 from ...models import FanSupportInput, LoadCombination
 from ...units import mm_to_m
 
 
-def _surface_line_load_kN_m(inp: FanSupportInput) -> float:
-    """Peso próprio da superfície (tramex/chapa) como carga linear na viga [kN/m]."""
-    surf = inp.walking_surface
-    if surf.self_weight_kn_m2 <= 0:
-        return 0.0
-    # Largura tributária ≈ footprint da 1ª unidade (m).
-    trib_w_m = mm_to_m(inp.fan_units[0].footprint_width_mm) if inp.fan_units else 0.6
-    return surf.self_weight_kn_m2 * trib_w_m
+@dataclass(frozen=True)
+class PlatformBreakdown:
+    """Esforços derivados do modelo de plataforma."""
+
+    n_beams: int
+    braced: bool
+    load_per_beam_kN: float
+    moment_per_beam_kNm: float
+    axial_per_beam_kN: float
+    diagonal_force_kN: float
+    diagonal_angle_deg: float
+    diagonal_length_mm: float
+    Lcr_y_mm: float
+    Lcr_z_mm: float
 
 
-def _member_forces(inp: FanSupportInput, c: LoadCombination) -> LoadCombination:
-    L_m = mm_to_m(inp.span_mm)
-    e_m = mm_to_m(inp.eccentricity_mm)
-    P_kN = c.V_z_kN
-    H_kN = abs(c.V_y_kN)
+def _is_braced(inp: FanSupportInput) -> bool:
+    return inp.cantilever_subtype is None or inp.cantilever_subtype == CantileverSubtype.BRACKETED
 
-    # Momento da viga superior: carga central + peso próprio da superfície + excentricidade.
-    M_central = P_kN * L_m / 4.0
-    q_surface = _surface_line_load_kN_m(inp)
-    M_surface = q_surface * L_m**2 / 8.0
-    M_y_kNm = M_central + M_surface + abs(P_kN) * e_m
 
-    # Acção horizontal nas escoras (axial) → momento de eixo fraco residual pequeno.
-    M_z_kNm = H_kN * L_m / 8.0
-    # Compressão indicativa nas escoras diagonais (45°): N ≈ H/cos45.
-    N_brace_kN = H_kN * 1.414
+def _breakdown_for_combo(inp: FanSupportInput, combo: LoadCombination) -> PlatformBreakdown:
+    length_mm = inp.platform_length_eff_mm
+    length_m = mm_to_m(length_mm)
+    height_mm = inp.installation_height_mm
+    height_m = mm_to_m(height_mm)
+    n_beams = max(2, inp.platform_n_beams)
+    braced = _is_braced(inp)
+
+    total_vertical_kN = abs(combo.V_z_kN)
+    total_horizontal_kN = abs(combo.V_y_kN)
+    load_per_beam_kN = total_vertical_kN / n_beams
+    q_kN_m = load_per_beam_kN / length_m if length_m > 0 else 0.0
+    moment_per_beam_kNm = q_kN_m * length_m**2 / 8.0
+    moment_per_beam_kNm += (total_horizontal_kN * height_m) / n_beams if height_m > 0 else 0.0
+
+    if braced:
+        theta = math.atan2(height_m, length_m) if length_m > 0 else math.pi / 4.0
+        reaction_tip_kN = 3.0 * q_kN_m * length_m / 8.0 if length_m > 0 else 0.0
+        diagonal_force_kN = (
+            reaction_tip_kN / math.sin(theta) if math.sin(theta) > 1e-6 else reaction_tip_kN
+        )
+        axial_per_beam_kN = reaction_tip_kN / math.tan(theta) if math.tan(theta) > 1e-6 else 0.0
+        diagonal_length_mm = math.hypot(length_mm, height_mm)
+        Lcr_y_mm = length_mm
+        Lcr_z_mm = length_mm
+    else:
+        theta = 0.0
+        diagonal_force_kN = 0.0
+        axial_per_beam_kN = 0.0
+        diagonal_length_mm = 0.0
+        Lcr_y_mm = length_mm
+        Lcr_z_mm = 0.5 * length_mm
+
+    return PlatformBreakdown(
+        n_beams=n_beams,
+        braced=braced,
+        load_per_beam_kN=round(load_per_beam_kN, 4),
+        moment_per_beam_kNm=round(moment_per_beam_kNm, 4),
+        axial_per_beam_kN=round(axial_per_beam_kN, 4),
+        diagonal_force_kN=round(diagonal_force_kN, 4),
+        diagonal_angle_deg=round(math.degrees(theta), 2),
+        diagonal_length_mm=round(diagonal_length_mm, 1),
+        Lcr_y_mm=Lcr_y_mm,
+        Lcr_z_mm=Lcr_z_mm,
+    )
+
+
+def compute_platform_breakdown(
+    inp: FanSupportInput, combinations: list[LoadCombination]
+) -> PlatformBreakdown:
+    """Return the governing platform breakdown among the supplied combinations."""
+    governing = max(combinations, key=lambda c: abs(c.V_z_kN))
+    return _breakdown_for_combo(inp, governing)
+
+
+def _member_forces(inp: FanSupportInput, combo: LoadCombination) -> LoadCombination:
+    breakdown = _breakdown_for_combo(inp, combo)
+    length_m = mm_to_m(inp.platform_length_eff_mm)
+    weak_axis_moment_kNm = abs(combo.V_y_kN) * length_m / (8.0 * breakdown.n_beams)
+
+    desc = (
+        f"Plataforma {breakdown.n_beams} vigas - "
+        f"{'com mão-francesa' if breakdown.braced else 'sem mão-francesa'} - "
+        f"P/viga={breakdown.load_per_beam_kN:.2f} kN "
+        f"M/viga={breakdown.moment_per_beam_kNm:.2f} kNm"
+    )
+    if breakdown.braced:
+        desc += (
+            f" | diagonal θ={breakdown.diagonal_angle_deg:.1f}° "
+            f"F_diag={breakdown.diagonal_force_kN:.2f} kN "
+            f"N_viga={breakdown.axial_per_beam_kN:.2f} kN"
+        )
 
     return LoadCombination(
-        name=c.name,
-        N_kN=N_brace_kN,
-        V_z_kN=P_kN / 2.0,  # a viga partilha com a travessa
-        V_y_kN=c.V_y_kN,
-        M_y_kNm=M_y_kNm,
-        M_z_kNm=M_z_kNm,
+        name=combo.name,
+        N_kN=breakdown.axial_per_beam_kN,
+        V_z_kN=breakdown.load_per_beam_kN / 2.0,
+        V_y_kN=combo.V_y_kN / breakdown.n_beams,
+        M_y_kNm=breakdown.moment_per_beam_kNm,
+        M_z_kNm=weak_axis_moment_kNm,
+        T_kNm=combo.T_kNm / breakdown.n_beams,
         member_level=True,
-        load_factors_used=c.load_factors_used,
-        description=(
-            f"Plataforma contraventada L={L_m:.2f}m M_viga={M_y_kNm:.2f} kNm "
-            f"N_escora={N_brace_kN:.2f} kN q_tramex={q_surface:.2f} kN/m"
-        ),
+        load_factors_used={
+            **combo.load_factors_used,
+            "n_beams": breakdown.n_beams,
+            "load_per_beam_kN": breakdown.load_per_beam_kN,
+            "diagonal_force_kN": breakdown.diagonal_force_kN,
+        },
+        description=desc,
     )
 
 
@@ -68,9 +128,8 @@ def calc_platform_frame_braced(
     combinations: list[LoadCombination],
     code: StructuralCode,
 ) -> tuple[list[LoadCombination], float, float]:
-    """Transforma todas as combinações em esforços na viga superior dimensionante."""
-    member_combos = [_member_forces(inp, c) for c in combinations]
-    L_mm = inp.span_mm
-    Lcr_y_mm = L_mm
-    Lcr_z_mm = 0.5 * L_mm
-    return member_combos, Lcr_y_mm, Lcr_z_mm
+    """Transform action combinations into member-level forces for one platform beam."""
+    del total_weight_kN, code
+    member_combos = [_member_forces(inp, combo) for combo in combinations]
+    governing = compute_platform_breakdown(inp, combinations)
+    return member_combos, governing.Lcr_y_mm, governing.Lcr_z_mm

@@ -7,8 +7,10 @@ The repository is structured for both developer usage and portable Windows deskt
 ## Highlights
 
 - Support sizing and verification workflows from the same interface
-- Multiple support families: `hanger`, `cantilever_1`, `cantilever_2`, `cantilever_3`, `pedestal`, `combined`, and `platform_frame_braced` (braced platform frame, recommended for Robot-type models)
+- Multiple support families: `hanger`, `cantilever_1`, `cantilever_2`, `cantilever_3`, `pedestal`, `combined`, and `platform_frame_braced`
+- **Phase 03 global frame solver** — all 7 support types now solved by a 2D linear elastic stiffness model; nodal displacements, support reactions, and member end forces are available for every supported type
 - Per-module utilization breakdown (steel section, base plate, anchors, connections) with an independent status per module and a clearly separated global governing check
+- Member checks driven by solver end forces — governing check label includes the member ID (e.g., `member-left.ltb`)
 - Optional calculation modules (dynamic factor, biaxial bending, lateral-torsional buckling, base plate, concrete anchors, steel connections, seismic, serviceability) that actually gate the calculation and are recorded in the traceability hash
 - Fixation to concrete (EN 1992-4 anchors) **or** to existing steel structure (EN 1993-1-8 steel-to-steel connections)
 - Walking surface (grating/tramex/plate) modelled as a load-distribution surface — never confused with a base plate
@@ -17,7 +19,9 @@ The repository is structured for both developer usage and portable Windows deskt
 - Country and code-aware behavior for Portugal, Spain, Ireland, UK, France, Brazil, Chile, and generic EU cases
 - Steel section selection from catalog data for `HEA`, `HEB`, `IPE`, `UPN`, and `RHS`
 - Base plate and anchor checks when enabled
-- Export outputs in PDF, Excel, and CSV
+- Export outputs in PDF, Excel, CSV, and JSON
+- IFC-assisted import path for BIM geometry review
+- Engineering transparency: PDF always includes calculation model type, serviceability status, connection verification status, and engineering warnings section — simplified and unverified items are never presented as verified
 - Portable Windows desktop packaging with PyInstaller
 - Native desktop window powered by `pywebview`, without opening Chrome or another browser tab
 - Automated GitHub Release publication for desktop artifacts
@@ -30,10 +34,17 @@ The repository is structured for both developer usage and portable Windows deskt
 |-- src/sfsc/
 |   |-- catalogs/
 |   |-- engines/
+|   |   |-- support_types/
+|   |   |-- global_frame.py       ← Phase 03 2D frame solver
+|   |   |-- connection_verifier.py
+|   |   |-- load_surfaces.py
+|   |   `-- ifc_import.py
+|   |-- i18n/                     ← EN / PT / ES translation keys
 |   |-- reports/
 |   `-- ui/
 |-- data/catalogs/
 |-- tests/
+|-- validation_cases/             ← hand-calculated reference cases
 |-- build_desktop/
 |   |-- sfsc.spec
 |   `-- publish_release.ps1
@@ -49,9 +60,22 @@ The application currently supports:
 
 - Interactive input for project data, fan units, geometry, seismic zone, steel grade, anti-vibration configuration, and optional base plate design
 - Section recommendation and verification using the internal calculation engine
+- 2D global frame analysis for all 7 support types (reactions, displacements, member end forces)
 - Engineering outputs grouped into section checks, base plate checks, anchor checks, combinations, warnings, and references
-- Report generation for PDF calculation memoranda, Excel workbooks, and CSV summary files
+- Report generation for PDF calculation memoranda, Excel workbooks, CSV summary files, and JSON export
 - Classification of results including `PASS`, `FAIL`, `MARGINAL`, and `REQUIRES_SPECIALIST`
+- Engineering state transparency: results always report whether each item is `verified`, `simplified`, `not_verified`, `not_applicable`, `requires_engineer_review`, or `failed`
+
+### Engineering state policy
+
+No calculation, UI component, or PDF section may present a missing or uncalculated check as `verified`. The current known states are:
+
+| Area | Current state |
+|---|---|
+| Global frame solver | **verified** — all 7 support types |
+| Member checks | **verified** — driven by solver end forces |
+| Serviceability | **not_verified** — deflection check not yet implemented |
+| Connection checks | **not_verified** or **simplified** — depends on available inputs |
 
 ### Weight scope policy
 
@@ -125,7 +149,7 @@ Run the automated test suite with:
 pytest
 ```
 
-The repository includes coverage for section catalogs, steel grades, seismic data, loads, section verification, and end-to-end calculation flows.
+The repository includes coverage for section catalogs, steel grades, seismic data, loads, section verification, global frame solver (closed-form reaction and deflection checks), and end-to-end calculation flows.
 
 Numerical regression is protected by a reference-case library in `validation_cases/` — each case ships a hand-calculated memo (`memoria.md`) that justifies the expected values; see `validation_cases/README.md`.
 
@@ -173,6 +197,7 @@ At runtime, the application can generate:
 - PDF calculation memorandum
 - Excel workbook with summary, combinations, section data, base plate data, and anchor data
 - CSV one-line summary for downstream workflows
+- JSON export of the full engineering result
 
 At packaging time, the project can generate:
 
@@ -184,27 +209,31 @@ At packaging time, the project can generate:
 - National code behavior depends on the embedded enums, assumptions, and YAML datasets shipped with the repository.
 - Results outside the covered scope may be marked as `REQUIRES_SPECIALIST` or include warnings and limitations in the report context.
 - Before using the tool in production, confirm the assumptions, catalogs, and standards data match your governing design basis and internal QA process.
+- The global frame solver provides 2D linear elastic analysis with small displacement assumptions. Results must be reviewed by a qualified structural engineer.
+- Serviceability (deflection) is currently tracked but not calculated — it is always shown as `not_verified` in the PDF and UI until implemented.
 
 ## Reports and Traceability
 
-Every output (PDF, Excel, CSV) carries the software version and a dataset
-provenance fingerprint (SHA-256 + modification date of each YAML), so a report
-can be traced to the exact data it was computed from. The PDF memorandum
-includes a cover page, an executive summary, a formula memory (intermediate
-values for the governing checks), a traceability section, and a signature
-block; it is watermarked **PRELIMINAR — NÃO APROVADO** whenever the result is
-not a clean `PASS` or is classified `REQUIRES_SPECIALIST`. Exporting requires
-the responsible engineer's name (it appears on the cover and signature block).
+Every output (PDF, Excel, CSV, JSON) carries the software version and a dataset provenance fingerprint (SHA-256 + modification date of each YAML), so a report can be traced to the exact data it was computed from. The PDF memorandum includes:
 
-Both sizing (`DIMENSION`) and verification (`VERIFY`) modes are available from
-the interface.
+- Cover page with calculation model type and solver engine
+- Serviceability status (always shown; `not_verified` when deflection is not calculated)
+- Connection verification status (per-component states for base plate, anchors, and welds)
+- Engineering warnings section (always visible — simplified model, unverified checks, engineer review required, tramex/grating terminology clarification)
+- Executive summary, formula memory, traceability section, and signature block
+
+The PDF is watermarked **PRELIMINAR — NÃO APROVADO** whenever the result is not a clean `PASS` or is classified `REQUIRES_SPECIALIST`. Exporting requires the responsible engineer's name (it appears on the cover and signature block).
+
+Both sizing (`DIMENSION`) and verification (`VERIFY`) modes are available from the interface.
 
 ## Development Notes
 
 - Main entry point: `app.py`
 - UI layer: `src/sfsc/ui/streamlit_app.py` (thin orchestrator) + `src/sfsc/ui/components/`
 - Core calculation orchestration: `src/sfsc/engines/selector.py`
+- Global frame solver: `src/sfsc/engines/global_frame.py`
 - YAML-backed configuration and dataset provenance: `src/sfsc/config.py`
+- i18n translation keys: `src/sfsc/i18n/` (EN / PT / ES)
 - Packaging scripts and assets: `build_desktop/`
 
 ## License

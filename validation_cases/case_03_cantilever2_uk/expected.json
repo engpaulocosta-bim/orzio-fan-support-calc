@@ -4,7 +4,7 @@
     "governing_combination": "ULS_fundamental",
     "section": "IPE80",
     "utilization_ratio": 0.4541,
-    "governing_check": "ltb",
+    "governing_check": "member-left.ltb",
     "status": "PASS",
     "classification": "ENGINEERING_ESTIMATE",
     "anchor_type": "concrete",

@@ -37,6 +37,8 @@ def run_checker(
         statuses.append(result.anchor.status)
     if result.metal_connection:
         statuses.append(result.metal_connection.status)
+    if result.platform and result.platform.diagonal:
+        statuses.append(result.platform.diagonal.status)
 
     if not statuses:
         return CheckerStatus.PASS

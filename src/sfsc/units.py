@@ -101,6 +101,10 @@ def kg_to_kn(kg: float) -> float:
     return kgf_to_kn(kg)
 
 
+def kn_to_kg(kn: float) -> float:
+    return kn * 1_000.0 / G_GRAVITY
+
+
 def tonne_to_kn(t: float) -> float:
     return t * G_GRAVITY
 

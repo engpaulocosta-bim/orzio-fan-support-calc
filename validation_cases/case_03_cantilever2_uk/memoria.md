@@ -40,7 +40,11 @@ LTB, Lcr = 1600 mm (mesma cadeia do caso 02, com fy = 355):
   η_LTB = 2.2580/4.9722                       = 0.4541   ★ governa
 ```
 
-**Esperado: IPE80, η = 0.4541, governing_check = ltb.**
+**Nota Phase 03 (2026-06-12):** Após extensão do motor global frame ao tipo CANTILEVER_2
+(viga biapoiada de 3 nós), o `governing_check` inclui o ID do membro (`member-left.ltb`).
+A utilização (0.4541) e a combinação governante mantêm-se.
+
+**Esperado: IPE80, η = 0.4541, governing_check = member-left.ltb.**
 
 ## 4. Ancoragens em parede
 

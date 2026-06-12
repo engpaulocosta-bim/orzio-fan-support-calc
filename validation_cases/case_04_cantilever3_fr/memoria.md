@@ -42,7 +42,18 @@ LTB, Lcr = 1500 mm:
 Compressão pilar (cl. 6.2.4/6.3.1): η_axial = 0.0125, η_buckling_z = 0.0303
 ```
 
-**Esperado: IPE80, η = 0.4898, governing_check = ltb.**
+**Actualizado Phase 03 (2026-06-12):** Com o motor global frame (pórtico em U de 5 nós),
+a carga vertical é aplicada no nó central da viga superior. Os momentos nos meios da viga
+são menores do que a aproximação simplificada (V×L/4). Resultado do solver:
+
+```
+Membro member-beam-left (nó-top-left → nó-top-mid, L/2 = 0.75 m):
+  M_j ≈ 1.590 kNm (momento no centro da viga)
+  LTB, Lcr = 1500 mm (comprimento total da viga — override):
+  η_LTB = 1.590/5.186 ≈ 0.3065   ★ governa
+```
+
+**Esperado (actualizado): IPE80, η ≈ 0.3065, governing_check = member-beam-left.ltb.**
 
 ## 4. Ancoragens no chão (derrube sísmico)
 

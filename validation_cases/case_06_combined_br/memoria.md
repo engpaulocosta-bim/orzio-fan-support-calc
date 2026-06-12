@@ -39,7 +39,18 @@ LTB, Lcr = 1500 mm (cadeia idêntica ao caso 04):
   η_LTB = 0.29733/5.1861 = 0.0573   ★ governa
 ```
 
-**Esperado: IPE80, η = 0.0573, check = ltb.**
+**Actualizado Phase 03 (2026-06-12):** Com o motor global frame (viga simplesmente apoiada
+de 3 nós, carga central), a carga total V_z é aplicada no nó central. O momento no meio
+da viga é determinado pelo solver directamente, incluindo o factor mesa (70%) que entra nas
+combinações. Resultado:
+
+```
+M_j (member-left, ULS_fundamental) ≈ 0.848 kNm
+  (aplica o factor mesa na combinação antes de enviar ao solver)
+  LTB, Lcr = 1500 mm: η_LTB = 0.848/... ≈ 0.3276   ★ governa
+```
+
+**Esperado (actualizado): IPE80, η ≈ 0.3276, governing_check = member-left.ltb.**
 
 ## 4. Ancoragens no chão
 

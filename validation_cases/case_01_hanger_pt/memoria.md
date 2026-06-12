@@ -45,7 +45,11 @@ LTB (cl. 6.3.2), Lcr = 1200 mm:
   η_LTB = 0.88061/5.906                       = 0.1491   ★ governa
 ```
 
-**Esperado: IPE80, η = 0.1491, governing_check = ltb, combinação ULS_fundamental.**
+**Esperado: IPE80, η = 0.1491, governing_check = member-left.ltb, combinação ULS_fundamental.**
+
+**Nota Phase 03 (2026-06-12):** Após extensão do motor global frame ao tipo HANGER,
+o `governing_check` inclui agora o ID do membro (`member-left.ltb`) em vez de `ltb`.
+A utilização e a combinação governante mantêm-se iguais ao cálculo manual.
 
 ## 4. Varões de suspensão (anchor_type = rod — sem betão)
 

@@ -7,9 +7,10 @@ from typing import Any
 import streamlit as st
 
 from sfsc.enums import AntiVibrationType, ExposureClass, FanConnectionType, SupportType
+from sfsc.i18n import Lang, t
 
 
-def render(support_type: SupportType) -> dict[str, Any]:
+def render(support_type: SupportType, lang: Lang = Lang.PT) -> dict[str, Any]:
     """Renderiza geometria + opções; devolve os valores."""
     st.subheader("6. Geometria")
     span_mm = st.number_input("Vão / comprimento L [mm]", min_value=100.0, value=1200.0, step=50.0)
@@ -32,6 +33,27 @@ def render(support_type: SupportType) -> dict[str, Any]:
             "Comprimento dos varões [mm]", min_value=100.0, value=h_inst_mm, step=50.0
         )
 
+    platform_n_beams = 2
+    platform_width_mm = None
+    platform_length_mm = None
+    if support_type == SupportType.PLATFORM_FRAME_BRACED:
+        st.caption("Parâmetros específicos da plataforma metálica.")
+        platform_n_beams = int(
+            st.number_input("Número de vigas paralelas", min_value=2, value=3, step=1)
+        )
+        platform_width_mm = st.number_input(
+            "Largura da plataforma [mm]",
+            min_value=200.0,
+            value=2400.0,
+            step=50.0,
+        )
+        platform_length_mm = st.number_input(
+            "Comprimento da plataforma [mm]",
+            min_value=200.0,
+            value=span_mm,
+            step=50.0,
+        )
+
     st.subheader("7. Opções")
     anti_vib_val = st.selectbox("Anti-vibração", [e.value for e in AntiVibrationType])
     anti_vib = AntiVibrationType(anti_vib_val)
@@ -42,6 +64,7 @@ def render(support_type: SupportType) -> dict[str, Any]:
     include_bp = st.checkbox("Incluir mesa / base plate", value=False)
     fan_conn_type = None
     bp_thick_mm = None
+    base_plate_input = None
     if include_bp:
         conn_val = st.selectbox(
             "Tipo de fixação ventilador (informativo)",
@@ -61,6 +84,54 @@ def render(support_type: SupportType) -> dict[str, Any]:
         )
         if bp_thick_mm == 0.0:
             bp_thick_mm = None
+        st.caption(t("sidebar.connection.basePlateInputs", lang))
+        bp_length_mm = st.number_input(
+            t("sidebar.connection.basePlateLength", lang),
+            min_value=0.0,
+            value=0.0,
+            step=25.0,
+        )
+        bp_width_mm = st.number_input(
+            t("sidebar.connection.basePlateWidth", lang),
+            min_value=0.0,
+            value=0.0,
+            step=25.0,
+        )
+        bp_thickness_explicit_mm = st.number_input(
+            t("sidebar.connection.basePlateThickness", lang),
+            min_value=0.0,
+            value=float(bp_thick_mm or 0.0),
+            step=1.0,
+        )
+        bp_weld_mm = st.number_input(
+            t("sidebar.connection.basePlateWeld", lang),
+            min_value=0.0,
+            value=0.0,
+            step=1.0,
+        )
+        bp_bolt_diameter_mm = st.number_input(
+            t("sidebar.connection.basePlateBoltDiameter", lang),
+            min_value=0.0,
+            value=0.0,
+            step=2.0,
+        )
+        bp_bolt_count = int(
+            st.number_input(
+                t("sidebar.connection.basePlateBoltCount", lang),
+                min_value=0,
+                value=0,
+                step=1,
+            )
+        )
+        base_plate_input = {
+            "length_mm": bp_length_mm or None,
+            "width_mm": bp_width_mm or None,
+            "thickness_mm": bp_thickness_explicit_mm or None,
+            "weld_throat_mm": bp_weld_mm or None,
+            "bolt_diameter_mm": bp_bolt_diameter_mm or None,
+            "n_bolts": bp_bolt_count or None,
+        }
+        bp_thick_mm = bp_thickness_explicit_mm or None
 
     exposure_val = st.selectbox("Classe de exposição", [e.value for e in ExposureClass])
     exposure = ExposureClass(exposure_val)
@@ -74,11 +145,15 @@ def render(support_type: SupportType) -> dict[str, Any]:
         "ecc_mm": ecc_mm,
         "dyn_fac": dyn_fac,
         "hanger_rod_mm": hanger_rod_mm,
+        "platform_n_beams": platform_n_beams,
+        "platform_width_mm": platform_width_mm,
+        "platform_length_mm": platform_length_mm,
         "anti_vib": anti_vib,
         "av_defl_mm": av_defl_mm,
         "include_bp": include_bp,
         "fan_conn_type": fan_conn_type,
         "bp_thick_mm": bp_thick_mm,
+        "base_plate_input": base_plate_input,
         "exposure": exposure,
         "concrete_grade": concrete_grade,
     }

@@ -37,7 +37,7 @@ def test_heavy_load_fails_or_marginal(heb200, heavy_combo):
     )
     # Pode passar ou falhar dependendo dos valores exactos — verificar que calcula
     assert result.utilization_ratio > 0.0
-    assert result.governing_check in ("bending_y", "shear_z", "ltb", "axial")
+    assert result.governing_check in ("bending_y", "shear", "ltb", "axial_tension", "axial_compression")
 
 
 def test_auto_select_finds_section():
@@ -58,5 +58,5 @@ def test_checks_dict_populated(heb200, light_combo):
     result = verify_section(
         heb200, light_combo, StructuralCode.EC3_EN1993, SteelGrade.S355, 1200.0, 600.0
     )
-    assert "shear_z" in result.utilization_by_check
+    assert "shear" in result.utilization_by_check
     assert "bending_y" in result.utilization_by_check

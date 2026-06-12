@@ -199,3 +199,30 @@ class ModuleId(str, Enum):
     SEISMIC_EQUIVALENT_STATIC = "seismic_equivalent_static"
     SERVICEABILITY = "serviceability"
     LOAD_DISTRIBUTION_SURFACE = "load_distribution_surface"
+
+
+class LoadDistributionMethod(str, Enum):
+    ONE_WAY = "one_way"
+    TRIBUTARY_WIDTH = "tributary_width"
+    MANUAL = "manual"
+
+
+class ManualLoadType(str, Enum):
+    POINT = "point"
+    LINE = "line"
+    AREA = "area"
+
+
+class LoadDirection(str, Enum):
+    GLOBAL_X = "global_x"
+    GLOBAL_Y = "global_y"
+    GLOBAL_Z = "global_z"
+    LOCAL_Y = "local_y"
+    LOCAL_Z = "local_z"
+
+
+class LoadCaseName(str, Enum):
+    G = "G"
+    Q = "Q"
+    EQ = "EQ"
+    MANUAL = "MANUAL"

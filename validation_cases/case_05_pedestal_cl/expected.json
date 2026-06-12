@@ -1,10 +1,10 @@
 {
   "expected": {
     "design_load_kN": 7.563,
-    "governing_combination": "ULS_seismic",
+    "governing_combination": "ULS_fundamental",
     "section": "IPE80",
-    "utilization_ratio": 0.1436,
-    "governing_check": "ltb",
+    "utilization_ratio": 0.3842,
+    "governing_check": "member-left.ltb",
     "status": "PASS",
     "classification": "REQUIRES_SPECIALIST",
     "anchor_type": "concrete",

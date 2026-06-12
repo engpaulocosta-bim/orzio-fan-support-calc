@@ -20,6 +20,10 @@ from .enums import (
     ExposureClass,
     FanConnectionType,
     FanType,
+    LoadCaseName,
+    LoadDirection,
+    LoadDistributionMethod,
+    ManualLoadType,
     ModuleId,
     OperationMode,
     SectionFamily,
@@ -78,6 +82,43 @@ class WalkingSurface(BaseModel):
         default=False,
         description="True = carga do equipamento distribuída na superfície; False = pontual",
     )
+    imposed_load_kn_m2: float = Field(
+        default=0.0, ge=0, description="Carga imposta de utilização [kN/m²]"
+    )
+    maintenance_load_kn_m2: float = Field(
+        default=0.0, ge=0, description="Carga de manutenção [kN/m²]"
+    )
+    distribution_method: LoadDistributionMethod = LoadDistributionMethod.ONE_WAY
+    target_member_ids: list[str] = Field(default_factory=list)
+
+
+class ManualLoad(BaseModel):
+    """Carga manual explícita para a fase de modelo manual de cargas."""
+
+    name: str = ""
+    load_type: ManualLoadType = ManualLoadType.POINT
+    load_case: LoadCaseName = LoadCaseName.MANUAL
+    direction: LoadDirection = LoadDirection.GLOBAL_Z
+    value: float = Field(default=0.0, ge=0)
+    target_member_id: str | None = None
+    loaded_length_m: float | None = Field(default=None, gt=0)
+    loaded_area_m2: float | None = Field(default=None, gt=0)
+
+    @property
+    def unit(self) -> str:
+        if self.load_type == ManualLoadType.POINT:
+            return "kN"
+        if self.load_type == ManualLoadType.LINE:
+            return "kN/m"
+        return "kN/m2"
+
+    @model_validator(mode="after")
+    def _validate_extent(self) -> ManualLoad:
+        if self.load_type == ManualLoadType.LINE and self.loaded_length_m is None:
+            raise ValueError("loaded_length_m obrigatório para carga manual do tipo line")
+        if self.load_type == ManualLoadType.AREA and self.loaded_area_m2 is None:
+            raise ValueError("loaded_area_m2 obrigatório para carga manual do tipo area")
+        return self
 
 
 # ── Fixação em estrutura metálica (alternativa ao betão — tarefa 1.5) ────────
@@ -99,6 +140,122 @@ class SteelFixationInput(BaseModel):
     weld_size_mm: float | None = Field(default=None, gt=0)
     weld_length_mm: float | None = Field(default=None, gt=0)
     has_stiffeners: bool = False
+
+
+class BasePlateInput(BaseModel):
+    """Explicit base plate input for Phase 05 connection checks."""
+
+    length_mm: float | None = Field(default=None, gt=0)
+    width_mm: float | None = Field(default=None, gt=0)
+    thickness_mm: float | None = Field(default=None, gt=0)
+    weld_throat_mm: float | None = Field(default=None, gt=0)
+    bolt_diameter_mm: float | None = Field(default=None, gt=0)
+    n_bolts: int | None = Field(default=None, gt=0)
+    bolt_class: BoltClass = BoltClass.C8_8
+
+
+class AnchorLayoutInput(BaseModel):
+    """Explicit anchor layout input for Phase 05 connection checks."""
+
+    n_anchors: int | None = Field(default=None, gt=0)
+    anchor_diameter_mm: float | None = Field(default=None, gt=0)
+    spacing_x_mm: float | None = Field(default=None, gt=0)
+    spacing_y_mm: float | None = Field(default=None, gt=0)
+    edge_distance_x_mm: float | None = Field(default=None, gt=0)
+    edge_distance_y_mm: float | None = Field(default=None, gt=0)
+
+
+class ImportedModelSource(BaseModel):
+    """Metadata for an assisted BIM/IFC import source."""
+
+    source_type: str = "ifc_extracted"
+    file_name: str | None = None
+    source_application: str | None = None
+    source_model_name: str | None = None
+    source_revision: str | None = None
+    imported_at: str | None = None
+
+
+class ImportedPoint3D(BaseModel):
+    x_m: float
+    y_m: float
+    z_m: float
+
+
+class ImportedElementPayload(BaseModel):
+    """Raw candidate element coming from an external BIM/IFC extraction."""
+
+    id: str = Field(min_length=1)
+    classification: str = ""
+    is_structural: bool = True
+    start: ImportedPoint3D | None = None
+    end: ImportedPoint3D | None = None
+    section_name: str | None = None
+    material_name: str | None = None
+    orientation_deg: float | None = None
+    start_support_condition: str | None = None
+    end_support_condition: str | None = None
+    source_guid: str | None = None
+
+
+class ImportedModelPayload(BaseModel):
+    """User-provided extracted BIM/IFC payload for Phase 06 review."""
+
+    source: ImportedModelSource = Field(default_factory=ImportedModelSource)
+    elements: list[ImportedElementPayload] = Field(default_factory=list)
+
+
+class ImportedModelWarning(BaseModel):
+    code: str
+    severity: str = "WARNING"
+    message: str
+    element_id: str | None = None
+
+
+class ImportedNodeReview(BaseModel):
+    id: str
+    x_m: float
+    y_m: float
+    z_m: float
+    merged_duplicate_count: int = 0
+
+
+class ImportedMemberReview(BaseModel):
+    id: str
+    classification: str
+    accepted: bool
+    start_node_id: str | None = None
+    end_node_id: str | None = None
+    section_name: str | None = None
+    material_name: str | None = None
+    orientation_deg: float | None = None
+    rejection_reason: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ImportedSupportReview(BaseModel):
+    node_id: str
+    support_condition: str
+    source_element_id: str
+
+
+class ImportedModelReview(BaseModel):
+    """Reviewed import state carried into report/export layers."""
+
+    source: ImportedModelSource
+    imported_elements_count: int
+    accepted_members_count: int
+    rejected_elements_count: int
+    non_structural_elements_count: int
+    warnings: list[ImportedModelWarning] = Field(default_factory=list)
+    nodes: list[ImportedNodeReview] = Field(default_factory=list)
+    members: list[ImportedMemberReview] = Field(default_factory=list)
+    supports: list[ImportedSupportReview] = Field(default_factory=list)
+    confirmed: bool = False
+    confirmed_by: str | None = None
+    confirmation_notes: str = ""
+    requires_engineer_review: bool = True
+    assumptions: list[str] = Field(default_factory=list)
 
 
 # ── Dados do ventilador ────────────────────────────────────────────────────────
@@ -186,6 +343,23 @@ class FanSupportInput(BaseModel):
         default=None, gt=0, description="Comprimento dos varões roscados (HANGER) [mm]"
     )
 
+    # Plataforma metálica / mesa de grelha
+    platform_n_beams: int = Field(
+        default=2,
+        ge=2,
+        description="Número de vigas paralelas da plataforma (mín. 2).",
+    )
+    platform_width_mm: float | None = Field(
+        default=None,
+        gt=0,
+        description="Largura explícita da plataforma [mm]. None = derivar do footprint.",
+    )
+    platform_length_mm: float | None = Field(
+        default=None,
+        gt=0,
+        description="Comprimento explícito da plataforma [mm]. None = usar span_mm.",
+    )
+
     # Anti-vibração
     anti_vibration: AntiVibrationType = AntiVibrationType.NONE
     anti_vibration_static_deflection_mm: float | None = Field(
@@ -225,8 +399,14 @@ class FanSupportInput(BaseModel):
     support_fixation_medium: SupportFixationMedium = SupportFixationMedium.CONCRETE
     base_plate_role: BasePlateRole = BasePlateRole.NONE
     steel_fixation: SteelFixationInput | None = None
+    base_plate_input: BasePlateInput | None = None
+    anchor_layout: AnchorLayoutInput | None = None
     section_orientation: SectionOrientation = SectionOrientation.STRONG_AXIS_VERTICAL
     section_rotation_deg: float | None = None
+    manual_loads: list[ManualLoad] = Field(default_factory=list)
+    imported_model: ImportedModelPayload | None = None
+    imported_model_confirmed: bool = False
+    imported_model_confirmation_notes: str = ""
 
     @model_validator(mode="after")
     def _sync_options_with_legacy_flags(self) -> FanSupportInput:
@@ -236,6 +416,19 @@ class FanSupportInput(BaseModel):
             self.calculation_options = self.calculation_options.model_copy(
                 update={"include_base_plate": True}
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_section_orientation(self) -> FanSupportInput:
+        if self.section_orientation == SectionOrientation.CUSTOM_ROTATION:
+            if self.section_rotation_deg is None:
+                raise ValueError(
+                    "section_rotation_deg obrigatório quando "
+                    "section_orientation=CUSTOM_ROTATION"
+                )
+            normalized = self.section_rotation_deg % 180.0
+            if normalized not in (0.0, 90.0):
+                raise ValueError("Phase 01 suporta apenas orientações de 0 ou 90 graus")
         return self
 
     @model_validator(mode="after")
@@ -253,6 +446,14 @@ class FanSupportInput(BaseModel):
             raise ValueError("fan_connection_type obrigatório quando include_base_plate=True")
         return self
 
+    @model_validator(mode="after")
+    def _check_import_confirmation(self) -> FanSupportInput:
+        if self.imported_model is not None and not self.imported_model_confirmed:
+            raise ValueError(
+                "imported_model_confirmed obrigatÃ³rio quando existe um modelo BIM/IFC importado"
+            )
+        return self
+
     @property
     def total_operating_weight_kg(self) -> float:
         return sum(u.operating_weight_kg for u in self.fan_units)
@@ -262,6 +463,33 @@ class FanSupportInput(BaseModel):
         from .units import kg_to_kn
 
         return kg_to_kn(self.total_operating_weight_kg)
+
+    @property
+    def platform_length_eff_mm(self) -> float:
+        return self.platform_length_mm or self.span_mm
+
+    @property
+    def platform_width_eff_mm(self) -> float:
+        if self.platform_width_mm:
+            return self.platform_width_mm
+        widths = [u.footprint_width_mm for u in self.fan_units] or [600.0]
+        return 1.2 * max(sum(widths), max(widths))
+
+    @property
+    def platform_area_m2(self) -> float:
+        from .units import mm_to_m
+
+        return mm_to_m(self.platform_length_eff_mm) * mm_to_m(self.platform_width_eff_mm)
+
+    @property
+    def platform_surface_weight_kN(self) -> float:
+        return self.walking_surface.self_weight_kn_m2 * self.platform_area_m2
+
+    @property
+    def platform_surface_weight_kg(self) -> float:
+        from .units import kn_to_kg
+
+        return kn_to_kg(self.platform_surface_weight_kN)
 
 
 # ── Secção metálica ────────────────────────────────────────────────────────────
@@ -310,6 +538,12 @@ class SteelSection(BaseModel):
         from .units import cm3_to_mm3
 
         return cm3_to_mm3(self.W_el_y_cm3)
+
+    @property
+    def W_el_z_mm3(self) -> float:
+        from .units import cm3_to_mm3
+
+        return cm3_to_mm3(self.W_el_z_cm3)
 
     @property
     def W_pl_y_mm3(self) -> float:
@@ -504,6 +738,44 @@ class QuantityEstimate(BaseModel):
     line_items: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class DiagonalResult(BaseModel):
+    """Verificação das diagonais/mãos-francesas da plataforma."""
+
+    n_diagonals: int
+    angle_deg: float
+    length_mm: float
+    axial_force_kN: float
+    section: SteelSection | None = None
+    utilization_compression: float = 0.0
+    utilization_buckling: float = 0.0
+    utilization_ratio: float = 0.0
+    status: CheckerStatus = CheckerStatus.PASS
+    code_clause: str = "EN 1993-1-1 cl. 6.2.4 + 6.3.1"
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PlatformResult(BaseModel):
+    """Síntese do modelo de plataforma/mesa de grelha."""
+
+    n_beams: int
+    braced: bool
+    width_mm: float
+    length_mm: float
+    area_m2: float
+    surface_weight_kn_m2: float
+    surface_weight_kg: float
+    steel_weight_kg: float
+    load_per_beam_kN: float
+    moment_per_beam_kNm: float
+    axial_per_beam_kN: float = 0.0
+    load_distribution_method: str = "one_way"
+    load_surface_components: list[dict[str, Any]] = Field(default_factory=list)
+    distributed_line_loads: list[dict[str, Any]] = Field(default_factory=list)
+    manual_loads_applied: list[dict[str, Any]] = Field(default_factory=list)
+    diagonal: DiagonalResult | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class FanSupportResult(BaseModel):
     """Resultado completo para um suporte de ventilador."""
 
@@ -521,6 +793,18 @@ class FanSupportResult(BaseModel):
     all_combinations: list[LoadCombination] = Field(default_factory=list)
     # Esforços de cálculo no elemento, por combinação (output do motor de suporte).
     member_forces: list[LoadCombination] = Field(default_factory=list)
+    solver_engine: str = "simplified"
+    solver_failed: bool = False
+    solver_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    solver_members: list[dict[str, Any]] = Field(default_factory=list)
+    solver_supports: list[dict[str, Any]] = Field(default_factory=list)
+    solver_releases: list[dict[str, Any]] = Field(default_factory=list)
+    solver_reactions: list[dict[str, Any]] = Field(default_factory=list)
+    solver_displacements: list[dict[str, Any]] = Field(default_factory=list)
+    solver_member_end_forces: list[dict[str, Any]] = Field(default_factory=list)
+    solver_warnings: list[str] = Field(default_factory=list)
+    member_check_rows: list[dict[str, Any]] = Field(default_factory=list)
+    connection_check_rows: list[dict[str, Any]] = Field(default_factory=list)
     recommended_section: SteelSection | None = None
     section_verification: SectionVerificationResult | None = None
     section_options: list[SectionVerificationResult] = Field(default_factory=list)
@@ -529,6 +813,7 @@ class FanSupportResult(BaseModel):
     steel_fixation: SteelFixationResult | None = None
     metal_connection: MetalConnectionResult | None = None
     quantities: QuantityEstimate | None = None
+    platform: PlatformResult | None = None
     classification_level: ClassificationLevel = ClassificationLevel.ENGINEERING_ESTIMATE
     status: CheckerStatus = CheckerStatus.PASS
     warnings: list[str] = Field(default_factory=list)
@@ -576,6 +861,9 @@ class ReportContext(BaseModel):
     assumptions_declared: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     dataset_provenance: dict[str, Any] = Field(default_factory=dict)
+    engineering_model: Any | None = None
+    engineering_report_state: Any | None = None
+    import_review: ImportedModelReview | None = None
 
 
 class BatchRowResult(BaseModel):
