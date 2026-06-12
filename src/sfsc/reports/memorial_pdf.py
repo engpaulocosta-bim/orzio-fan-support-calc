@@ -7,6 +7,8 @@ from pathlib import Path
 
 from .. import __version__
 from ..assessment import assess_result
+from ..enums import CheckStatus
+from ..i18n import Lang, t
 from ..models import ReportContext
 
 # Cores Orzio
@@ -309,6 +311,43 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
                     ),
                 )
             )
+        story.append(Spacer(1, 4 * mm))
+
+    # ── Verificação final por módulo (tarefa 1.1) ────────────────────────────
+    if res and res.module_breakdown:
+        lang = Lang.PT
+        story.append(Paragraph(t("report.section.moduleSummary", lang), S_h1))
+        _STATUS_KEY = {
+            CheckStatus.OK: "status.ok",
+            CheckStatus.MARGINAL: "status.marginal",
+            CheckStatus.FAIL: "status.fail",
+            CheckStatus.NOT_CHECKED: "status.not_checked",
+            CheckStatus.INFORMATIVE: "status.informative",
+        }
+        mod_rows = []
+        for c in res.module_breakdown:
+            eta_txt = "N/A" if c.eta is None else f"{c.eta:.3f}"
+            gov_txt = "Sim" if c.governing else ""
+            mod_rows.append(
+                [
+                    t(c.label_key, lang),
+                    t(_STATUS_KEY.get(c.status, "status.informative"), lang),
+                    eta_txt,
+                    gov_txt,
+                ]
+            )
+        story.append(
+            data_table(
+                [
+                    t("report.column.module", lang),
+                    t("report.column.status", lang),
+                    t("report.column.eta", lang),
+                    t("report.column.governing", lang),
+                ],
+                mod_rows,
+                col_widths=[W - 110 * mm, 38 * mm, 30 * mm, 22 * mm],
+            )
+        )
         story.append(Spacer(1, 4 * mm))
 
     # ══════════════════════════════════════════════════════════════════════════

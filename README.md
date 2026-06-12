@@ -7,7 +7,13 @@ The repository is structured for both developer usage and portable Windows deskt
 ## Highlights
 
 - Support sizing and verification workflows from the same interface
-- Multiple support families: `hanger`, `cantilever_1`, `cantilever_2`, `cantilever_3`, `pedestal`, and `combined`
+- Multiple support families: `hanger`, `cantilever_1`, `cantilever_2`, `cantilever_3`, `pedestal`, `combined`, and `platform_frame_braced` (braced platform frame, recommended for Robot-type models)
+- Per-module utilization breakdown (steel section, base plate, anchors, connections) with an independent status per module and a clearly separated global governing check
+- Optional calculation modules (dynamic factor, biaxial bending, lateral-torsional buckling, base plate, concrete anchors, steel connections, seismic, serviceability) that actually gate the calculation and are recorded in the traceability hash
+- Fixation to concrete (EN 1992-4 anchors) **or** to existing steel structure (EN 1993-1-8 steel-to-steel connections)
+- Walking surface (grating/tramex/plate) modelled as a load-distribution surface — never confused with a base plate
+- Robot benchmark calculation mode (bare member, no base plate/anchors/connections/seismic)
+- Trilingual interface and reports (PT / EN / ES) via i18n keys
 - Country and code-aware behavior for Portugal, Spain, Ireland, UK, France, Brazil, Chile, and generic EU cases
 - Steel section selection from catalog data for `HEA`, `HEB`, `IPE`, `UPN`, and `RHS`
 - Base plate and anchor checks when enabled

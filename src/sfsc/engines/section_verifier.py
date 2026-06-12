@@ -23,6 +23,9 @@ def verify_section(
     steel_grade: SteelGrade,
     buckling_length_y_mm: float,
     buckling_length_z_mm: float,
+    *,
+    include_ltb: bool = True,
+    include_biaxial: bool = True,
 ) -> SectionVerificationResult:
     """
     Verifica uma secção metálica contra a combinação governante.
@@ -74,7 +77,7 @@ def verify_section(
     # ── 6.2.5 Flexão no eixo fraco (M_z — acções horizontais/sísmicas) ────────
     M_z_Ed_kNm = abs(combination.M_z_kNm)
     eta_Mz = 0.0
-    if M_z_Ed_kNm > 0:
+    if include_biaxial and M_z_Ed_kNm > 0:
         Mc_z_Rd_kNm = (section.W_pl_z_mm3 * fy_eff) / (gamma_M0 * 1e6)
         eta_Mz = M_z_Ed_kNm / Mc_z_Rd_kNm if Mc_z_Rd_kNm > 0 else 99.0
         checks["bending_z"] = eta_Mz
@@ -86,7 +89,7 @@ def verify_section(
         clauses.append("EN 1993-1-1 cl. 6.2.9")
 
     # ── 6.3.2 Encurvadura lateral (LTB) ──────────────────────────────────────
-    if M_Ed_kNm > 0 and buckling_length_y_mm > 0:
+    if include_ltb and M_Ed_kNm > 0 and buckling_length_y_mm > 0:
         Lcr_mm = buckling_length_y_mm
         # Momento crítico de encurvadura lateral (simplificado — secção em I)
         # M_cr = C1 * (π²EI_z/(Lcr²)) * sqrt(I_w/I_z + Lcr²*G*I_t/(π²*E*I_z))
@@ -200,6 +203,9 @@ def verify_section_envelope(
     steel_grade: SteelGrade,
     buckling_length_y_mm: float,
     buckling_length_z_mm: float,
+    *,
+    include_ltb: bool = True,
+    include_biaxial: bool = True,
 ) -> SectionVerificationResult:
     """
     Verifica a secção contra TODAS as combinações ULS e devolve o envelope
@@ -218,6 +224,8 @@ def verify_section_envelope(
                 steel_grade,
                 buckling_length_y_mm,
                 buckling_length_z_mm,
+                include_ltb=include_ltb,
+                include_biaxial=include_biaxial,
             ),
         )
         for c in _uls_combinations(combinations)
@@ -264,6 +272,9 @@ def find_passing_sections(
     buckling_length_y_mm: float,
     buckling_length_z_mm: float,
     max_utilization: float = 1.0,
+    *,
+    include_ltb: bool = True,
+    include_biaxial: bool = True,
 ) -> list[SectionVerificationResult]:
     """Retorna todos os perfis que verificam o envelope ULS, por peso crescente."""
     candidates: list[SectionVerificationResult] = []
@@ -282,6 +293,8 @@ def find_passing_sections(
                 steel_grade,
                 buckling_length_y_mm,
                 buckling_length_z_mm,
+                include_ltb=include_ltb,
+                include_biaxial=include_biaxial,
             )
             if result.utilization_ratio <= max_utilization:
                 candidates.append(result)
@@ -300,6 +313,9 @@ def auto_select_section(
     buckling_length_y_mm: float,
     buckling_length_z_mm: float,
     max_utilization: float = MAX_UTILIZATION,
+    *,
+    include_ltb: bool = True,
+    include_biaxial: bool = True,
 ) -> tuple[SteelSection, SectionVerificationResult]:
     """
     Itera catálogos (peso crescente) e retorna o perfil mais leve que verifica
@@ -317,6 +333,8 @@ def auto_select_section(
                 steel_grade,
                 buckling_length_y_mm,
                 buckling_length_z_mm,
+                include_ltb=include_ltb,
+                include_biaxial=include_biaxial,
             )
             if result.utilization_ratio <= max_utilization:
                 logger.info(

@@ -10,7 +10,17 @@ import pandas as pd
 import streamlit as st
 
 from sfsc.assessment import assess_result
+from sfsc.enums import CheckStatus
+from sfsc.i18n import Lang, t
 from sfsc.models import ReportContext
+
+_STATUS_KEY = {
+    CheckStatus.OK: "status.ok",
+    CheckStatus.MARGINAL: "status.marginal",
+    CheckStatus.FAIL: "status.fail",
+    CheckStatus.NOT_CHECKED: "status.not_checked",
+    CheckStatus.INFORMATIVE: "status.informative",
+}
 
 
 def _fmt_pct(value: float | None) -> str:
@@ -18,7 +28,7 @@ def _fmt_pct(value: float | None) -> str:
 
 
 def render(ctx: ReportContext, base_ctx: ReportContext) -> None:
-    """Renderiza banner + avisos críticos + tabs de resultados."""
+    """Renderiza banner + avisos críticos + breakdown modular + tabs."""
     res = ctx.fan_support_result
     assert res is not None
     base_res = base_ctx.fan_support_result
@@ -26,7 +36,28 @@ def render(ctx: ReportContext, base_ctx: ReportContext) -> None:
 
     _render_banner(res, assessment)
     _render_critical_warnings(ctx)
+    _render_module_breakdown(res)
     _render_tabs(ctx, res, base_res)
+
+
+def _render_module_breakdown(res, lang: Lang = Lang.PT) -> None:
+    """Tabela clara de utilização POR módulo (tarefa 1.1) — sem misturar perfil
+    com base plate."""
+    if not res.module_breakdown:
+        return
+    st.subheader(t("report.section.moduleSummary", lang))
+    rows = [
+        {
+            t("report.column.module", lang): t(c.label_key, lang),
+            t("report.column.status", lang): t(
+                _STATUS_KEY.get(c.status, "status.informative"), lang
+            ),
+            t("report.column.eta", lang): "N/A" if c.eta is None else f"{c.eta:.3f}",
+            t("report.column.governing", lang): "★" if c.governing else "",
+        }
+        for c in res.module_breakdown
+    ]
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
 
 def _render_banner(res, assessment) -> None:
