@@ -263,6 +263,44 @@ def generate_excel(ctx: ReportContext, output_path: str | Path | None = None) ->
             n6 += 1
         _set_col_widths(ws6, [38, 35])
 
+    # Folha de quantidades preliminares (Fase 5 / orcamentacao)
+    if res and res.quantities:
+        wsq = wb.create_sheet("Quantidades")
+        q = res.quantities
+        nq = 1
+        for kq, vq in [
+            ("Nota", q.estimate_note),
+            ("Comprimento perfis [m]", q.structural_steel_length_m),
+            ("Massa perfis [kg]", q.structural_steel_mass_kg),
+            ("Massa chapas [kg]", q.plate_mass_kg),
+            ("Massa total aco [kg]", q.total_steel_mass_kg),
+            ("Ancoragens/varoes [n]", q.anchor_count),
+            ("Diametro ancoragem/varao [mm]", q.anchor_diameter_mm),
+            ("Embebimento/comprimento [mm]", q.anchor_embedment_or_length_mm),
+            ("Tipo ancoragem", q.anchor_type),
+            ("Comprimento solda [mm]", q.weld_length_mm),
+            ("Garganta solda [mm]", q.weld_throat_mm),
+        ]:
+            _kv_row(wsq, None, kq, vq, nq)
+            nq += 1
+
+        nq += 1
+        for j, h in enumerate(["Item", "Quantidade", "Comprimento", "Massa [kg]", "Base"], 1):
+            _header_style(wsq.cell(nq, j, h))
+        nq += 1
+        for item in q.line_items:
+            wsq.cell(nq, 1, str(item.get("item", "")))
+            wsq.cell(nq, 2, item.get("quantity", ""))
+            wsq.cell(
+                nq,
+                3,
+                item.get("length_m", item.get("length_mm", item.get("embedment_or_length_mm", ""))),
+            )
+            wsq.cell(nq, 4, item.get("mass_kg", ""))
+            wsq.cell(nq, 5, item.get("section", item.get("type", "")))
+            nq += 1
+        _set_col_widths(wsq, [36, 16, 18, 16, 24])
+
     # ── Folha 7: Avisos e Pressupostos (auditoria H-04) ──────────────────────
     ws7 = wb.create_sheet("Avisos e Pressupostos")
     n7 = 1
@@ -387,6 +425,13 @@ def generate_csv(ctx: ReportContext, output_path: str | Path | None = None) -> s
             if (res and res.metal_connection)
             else ""
         ),
+        "quantity_total_steel_kg": res.quantities.total_steel_mass_kg
+        if (res and res.quantities)
+        else "",
+        "quantity_anchor_count": res.quantities.anchor_count if (res and res.quantities) else "",
+        "quantity_weld_length_mm": res.quantities.weld_length_mm
+        if (res and res.quantities)
+        else "",
         "status": res.status.value if res else "",
         "classification": res.classification_level.value if res else "",
         "warnings_count": len(ctx.warnings),

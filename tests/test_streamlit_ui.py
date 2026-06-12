@@ -57,14 +57,14 @@ def test_results_persist_across_rerun_for_downloads():
     app.run()
     assert not app.exception
     assert len(app.metric) > 0
-    assert len(app.get("download_button")) == 3
+    assert len(app.get("download_button")) == 4
 
     # Um rerun sem clicar Calcular (equivale a clicar num botão de download)
     # não pode esvaziar os resultados nem os botões de download.
     app.run()
     assert not app.exception
     assert len(app.metric) > 0
-    assert len(app.get("download_button")) == 3
+    assert len(app.get("download_button")) == 4
 
 
 def test_export_gated_until_engineer_filled():

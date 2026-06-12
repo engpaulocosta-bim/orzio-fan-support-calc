@@ -11,6 +11,7 @@ import datetime
 import streamlit as st
 
 from sfsc.models import ReportContext
+from sfsc.reports.export_json import generate_json
 from sfsc.reports.exports import generate_csv, generate_excel
 from sfsc.reports.memorial_pdf import generate_pdf
 
@@ -29,7 +30,7 @@ def render(ctx: ReportContext, support_tag: str) -> None:
         return
 
     today = datetime.date.today()
-    col_pdf, col_xlsx, col_csv = st.columns(3)
+    col_pdf, col_xlsx, col_csv, col_json = st.columns(4)
     with col_pdf:
         st.download_button(
             "📄 Download PDF",
@@ -52,5 +53,13 @@ def render(ctx: ReportContext, support_tag: str) -> None:
             data=generate_csv(ctx),
             file_name=f"sfsc_{support_tag}_{today}.csv",
             mime="text/csv",
+            width="stretch",
+        )
+    with col_json:
+        st.download_button(
+            "Download JSON",
+            data=generate_json(ctx),
+            file_name=f"sfsc_{support_tag}_{today}.json",
+            mime="application/json",
             width="stretch",
         )
