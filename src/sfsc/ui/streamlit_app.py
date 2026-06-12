@@ -20,7 +20,13 @@ from pydantic import ValidationError as PydanticValidationError
 
 from sfsc.engines.selector import context_for_section_choice, run_full_calculation
 from sfsc.exceptions import SFSCBaseError
-from sfsc.models import FanSupportInput, FanUnit
+from sfsc.models import (
+    CalculationOptions,
+    FanSupportInput,
+    FanUnit,
+    SteelFixationInput,
+    WalkingSurface,
+)
 from sfsc.ui.components import (
     export_bar,
     results_view,
@@ -28,6 +34,7 @@ from sfsc.ui.components import (
     sidebar_fan,
     sidebar_geometry,
     sidebar_identification,
+    sidebar_modules,
     sidebar_support,
 )
 
@@ -63,6 +70,7 @@ def _collect_inputs() -> FanSupportInput:
     support = sidebar_support.render()
     context = sidebar_context.render()
     geom = sidebar_geometry.render(support["support_type"])
+    modules = sidebar_modules.render()
 
     fan_units = [
         FanUnit(
@@ -105,6 +113,13 @@ def _collect_inputs() -> FanSupportInput:
         exposure_class=geom["exposure"],
         concrete_grade=geom["concrete_grade"],
         confirm_extended_range=confirm_extended,
+        calculation_mode=modules["calculation_mode"],
+        calculation_options=CalculationOptions(**modules["calculation_options"]),
+        walking_surface=WalkingSurface(**modules["walking_surface"]),
+        support_fixation_medium=modules["support_fixation_medium"],
+        steel_fixation=(
+            SteelFixationInput(**modules["steel_fixation"]) if modules["steel_fixation"] else None
+        ),
     )
 
 

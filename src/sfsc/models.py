@@ -6,22 +6,100 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from .checks import CheckResult
 from .enums import (
     AntiVibrationType,
+    BasePlateRole,
+    BoltClass,
+    CalculationMode,
     CantileverSubtype,
     CheckerStatus,
+    CheckStatus,
     ClassificationLevel,
     Country,
     ExposureClass,
     FanConnectionType,
     FanType,
+    ModuleId,
     OperationMode,
     SectionFamily,
+    SectionOrientation,
     SeismicCode,
+    SteelConnectionType,
     SteelGrade,
     StructuralCode,
+    SupportFixationMedium,
     SupportType,
+    WalkingSurfaceType,
 )
+
+# ── Opções de cálculo (módulos opcionais — tarefa 1.3) ──────────────────────
+
+
+class CalculationOptions(BaseModel):
+    """Toggles que decidem que módulos entram no cálculo.
+
+    Cada toggle afeta realmente o cálculo, aparece no relatório e entra no
+    hash de rastreabilidade (``options_fingerprint``).
+    """
+
+    include_dynamic_factor: bool = True
+    include_biaxial_bending: bool = True
+    include_lateral_torsional_buckling: bool = True
+    include_base_plate: bool = False
+    include_anchors: bool = True
+    include_steel_connections: bool = True
+    include_seismic_equivalent_static: bool = True
+    include_serviceability: bool = False
+
+    def fingerprint(self) -> str:
+        """Assinatura curta e estável das opções (entra no hash de rastreabilidade)."""
+        import hashlib
+
+        payload = "|".join(f"{k}={int(v)}" for k, v in sorted(self.model_dump().items()))
+        return hashlib.sha256(payload.encode()).hexdigest()[:12]
+
+
+# ── Superfície de distribuição de carga (tramex/chapa — NÃO é base plate) ────
+
+
+class WalkingSurface(BaseModel):
+    """Superfície superior (tramex, grelha, chapa) que distribui carga às vigas.
+
+    Tarefa 1.4 / secção 10: NUNCA calcula cone de betão, pull-out, pry-out ou
+    ancoragens — apenas converte peso em carga de área e/ou peso próprio.
+    """
+
+    surface_type: WalkingSurfaceType = WalkingSurfaceType.NONE
+    self_weight_kn_m2: float = Field(
+        default=0.0, ge=0, description="Peso próprio da superfície [kN/m²]"
+    )
+    equipment_load_distributed: bool = Field(
+        default=False,
+        description="True = carga do equipamento distribuída na superfície; False = pontual",
+    )
+
+
+# ── Fixação em estrutura metálica (alternativa ao betão — tarefa 1.5) ────────
+
+
+class SteelFixationInput(BaseModel):
+    """Dados da ligação aço-aço quando a fixação é em estrutura metálica."""
+
+    connection_type: SteelConnectionType = SteelConnectionType.BOLTED
+    receiving_member_section_id: str | None = None
+    receiving_member_material: str | None = None
+    plate_thickness_mm: float | None = Field(default=None, gt=0)
+    bolt_diameter_mm: float | None = Field(default=None, gt=0)
+    bolt_class: BoltClass = BoltClass.C8_8
+    number_of_bolts: int | None = Field(default=None, gt=0)
+    hole_diameter_mm: float | None = Field(default=None, gt=0)
+    edge_distance_mm: float | None = Field(default=None, gt=0)
+    spacing_mm: float | None = Field(default=None, gt=0)
+    weld_size_mm: float | None = Field(default=None, gt=0)
+    weld_length_mm: float | None = Field(default=None, gt=0)
+    has_stiffeners: bool = False
+
 
 # ── Dados do ventilador ────────────────────────────────────────────────────────
 
@@ -139,6 +217,26 @@ class FanSupportInput(BaseModel):
         default=False,
         description="Confirmação de utilização na faixa 600–1000 kg, fora da faixa do produto",
     )
+
+    # ── Conceitos separados (tarefa 1.4/1.5/secção 6) ────────────────────────
+    calculation_mode: CalculationMode = CalculationMode.FULL_PRELIMINARY_DESIGN
+    calculation_options: CalculationOptions = Field(default_factory=CalculationOptions)
+    walking_surface: WalkingSurface = Field(default_factory=WalkingSurface)
+    support_fixation_medium: SupportFixationMedium = SupportFixationMedium.CONCRETE
+    base_plate_role: BasePlateRole = BasePlateRole.NONE
+    steel_fixation: SteelFixationInput | None = None
+    section_orientation: SectionOrientation = SectionOrientation.STRONG_AXIS_VERTICAL
+    section_rotation_deg: float | None = None
+
+    @model_validator(mode="after")
+    def _sync_options_with_legacy_flags(self) -> FanSupportInput:
+        """Mantém include_base_plate (legado) coerente com as opções de módulos."""
+        # Se o utilizador ativou a mesa pelo flag legado, refletir nas opções.
+        if self.include_base_plate and not self.calculation_options.include_base_plate:
+            self.calculation_options = self.calculation_options.model_copy(
+                update={"include_base_plate": True}
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_verify_mode(self) -> FanSupportInput:
@@ -329,6 +427,28 @@ class AnchorResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class SteelFixationResult(BaseModel):
+    """Resultado da fixação aço-aço (EN 1993-1-8) — alternativa ao betão (tarefa 1.5)."""
+
+    connection_type: SteelConnectionType
+    n_bolts: int
+    bolt_diameter_mm: float
+    bolt_class: str
+    plate_thickness_mm: float
+    utilization_bolt_shear: float
+    utilization_bolt_tension: float
+    utilization_bolt_interaction: float
+    utilization_bearing: float
+    utilization_weld: float
+    utilization_plate: float
+    utilization_ratio: float
+    receiving_member_checked: bool = False
+    status: CheckerStatus
+    code_clause: str = "EN 1993-1-8"
+    warnings: list[str] = Field(default_factory=list)
+    intermediate_values: dict[str, float] = Field(default_factory=dict)
+
+
 class MetalConnectionResult(BaseModel):
     """Resultado simplificado das ligações metálicas do suporte."""
 
@@ -383,11 +503,17 @@ class FanSupportResult(BaseModel):
     section_options: list[SectionVerificationResult] = Field(default_factory=list)
     base_plate: BasePlateResult | None = None
     anchor: AnchorResult | None = None
+    steel_fixation: SteelFixationResult | None = None
     metal_connection: MetalConnectionResult | None = None
     classification_level: ClassificationLevel = ClassificationLevel.ENGINEERING_ESTIMATE
     status: CheckerStatus = CheckerStatus.PASS
     warnings: list[str] = Field(default_factory=list)
     assumptions_used: list[str] = Field(default_factory=list)
+    # Breakdown modular granular (tarefa 1.1) + diagnóstico global agregado.
+    module_breakdown: list[CheckResult] = Field(default_factory=list)
+    global_status: CheckStatus = CheckStatus.OK
+    governing_module: ModuleId | None = None
+    governing_eta: float | None = None
 
 
 # ── Contexto do memorial ───────────────────────────────────────────────────────

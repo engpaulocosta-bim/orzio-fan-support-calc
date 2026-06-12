@@ -79,24 +79,23 @@ def calculate_base_plate(
     # Momento na projecção: M = sigma_bearing × c² / 2
     M_plate_Nmm_mm = sigma_bearing_mpa * c_mm**2 / 2.0  # Nmm/mm de largura
 
-    # Espessura necessária: t = sqrt(6 × M / fy)
-    t_min_mm = math.sqrt(6.0 * M_plate_Nmm_mm / (fy_mpa / gamma_M0))
-    t_min_mm = max(t_min_mm, 10.0)  # mínimo 10 mm
+    # Espessura por RESISTÊNCIA à flexão (sem piso construtivo): t = sqrt(6·M/fy).
+    # Separar do mínimo CONSTRUTIVO de 10 mm evita a contradição "passa + não
+    # verifica" (tarefa 1.2): abaixo do mínimo construtivo é uma limitação de
+    # boa prática, não uma falha de resistência.
+    t_req_strength_mm = math.sqrt(6.0 * M_plate_Nmm_mm / (fy_mpa / gamma_M0))
+    t_constructive_min_mm = 10.0
+    t_min_mm = max(t_req_strength_mm, t_constructive_min_mm)
+    below_constructive = False
     if inp.base_plate_thickness_mm:
-        # Espessura fornecida pelo utilizador → modo verificação (auditoria C-04):
-        # a chapa indicada é verificada, não redimensionada.
+        # Espessura fornecida pelo utilizador → modo verificação (auditoria C-04).
         t_plate_mm = float(inp.base_plate_thickness_mm)
         warnings.append(
             f"Espessura da chapa fornecida pelo utilizador ({t_plate_mm:.0f} mm) — "
             "verificada, não redimensionada."
         )
-        if t_plate_mm < t_min_mm:
-            warnings.append(
-                f"Espessura fornecida ({t_plate_mm:.0f} mm) inferior à mínima "
-                f"calculada ({t_min_mm:.1f} mm) — flexão da chapa não verifica."
-            )
+        below_constructive = t_plate_mm < t_constructive_min_mm
     else:
-        # Arredondar para espessura comercial
         t_plate_mm = _round_plate_thickness(t_min_mm)
 
     # ── Parafusos ventilador → chapa ──────────────────────────────────────────
@@ -236,8 +235,17 @@ def calculate_base_plate(
         1.01 if not (spacing_ok and edge_ok) else 0.0,
     )
 
+    # Status coerente (tarefa 1.2): a resistência manda; o mínimo construtivo
+    # só rebaixa para MARGINAL com mensagem própria — nunca diz "não verifica".
     if eta_overall > 1.0:
         status = CheckerStatus.FAIL
+    elif below_constructive:
+        status = CheckerStatus.MARGINAL
+        warnings.append(
+            f"Chapa {t_plate_mm:.0f} mm abaixo do mínimo construtivo recomendado "
+            f"({t_constructive_min_mm:.0f} mm). Verifica à resistência "
+            f"(η_flexão = {eta_bending:.3f}), mas reveja a espessura por boa prática."
+        )
     elif eta_overall > 0.90:
         status = CheckerStatus.MARGINAL
     else:

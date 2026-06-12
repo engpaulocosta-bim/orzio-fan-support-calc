@@ -12,6 +12,8 @@ class SupportType(str, Enum):
     CANTILEVER_3 = "cantilever_3"
     PEDESTAL = "pedestal"
     COMBINED = "combined"
+    # Plataforma metálica com quadro e escoras (recomendada p/ modelos tipo Robot).
+    PLATFORM_FRAME_BRACED = "platform_frame_braced"
 
 
 class CantileverSubtype(str, Enum):
@@ -110,3 +112,90 @@ class FanType(str, Enum):
     CENTRIFUGAL = "centrifugal"
     MIXED_FLOW = "mixed_flow"
     INLINE = "inline"
+
+
+# ── Conceitos separados (tarefa 1.4 / secção 10) ────────────────────────────
+
+
+class WalkingSurfaceType(str, Enum):
+    """Superfície superior de distribuição de carga — NÃO é base plate."""
+
+    NONE = "none"
+    STEEL_GRATING_TRAMEX = "steel_grating_tramex"
+    CHECKER_PLATE = "checker_plate"
+    SOLID_PLATE = "solid_plate"
+    OTHER = "other"
+
+
+class SupportFixationMedium(str, Enum):
+    """Meio em que o suporte é fixado — decide betão (EN 1992-4) vs aço (EN 1993-1-8)."""
+
+    CONCRETE = "concrete"
+    STEEL_STRUCTURE = "steel_structure"
+    MASONRY = "masonry"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
+
+
+class BasePlateRole(str, Enum):
+    """Papel da chapa de base/ligação — distinto de superfície de piso."""
+
+    NONE = "none"
+    EQUIPMENT_SPREADER = "equipment_spreader"
+    SUPPORT_FOOT_PLATE = "support_foot_plate"
+    CONNECTION_PLATE_TO_STEEL = "connection_plate_to_steel"
+    CONNECTION_PLATE_TO_CONCRETE = "connection_plate_to_concrete"
+
+
+class SteelConnectionType(str, Enum):
+    """Tipo de ligação aço-aço para fixação em estrutura metálica."""
+
+    BOLTED = "bolted"
+    WELDED = "welded"
+    BOLTED_WELDED = "bolted_welded"
+
+
+class BoltClass(str, Enum):
+    C4_6 = "4.6"
+    C5_6 = "5.6"
+    C8_8 = "8.8"
+    C10_9 = "10.9"
+
+
+class SectionOrientation(str, Enum):
+    """Orientação da secção — crítico em IPE/UPN (eixo forte vs fraco)."""
+
+    STRONG_AXIS_VERTICAL = "strong_axis_vertical"
+    WEAK_AXIS_VERTICAL = "weak_axis_vertical"
+    CUSTOM_ROTATION = "custom_rotation"
+
+
+class CalculationMode(str, Enum):
+    """Modo de cálculo — evita comparar SFSC global com barras do Robot."""
+
+    ENGINEERING_ESTIMATE = "engineering_estimate"
+    ROBOT_BENCHMARK = "robot_benchmark"
+    FULL_PRELIMINARY_DESIGN = "full_preliminary_design"
+
+
+class CheckStatus(str, Enum):
+    """Estado granular de uma verificação individual (tarefa 1.2)."""
+
+    OK = "ok"
+    MARGINAL = "marginal"
+    FAIL = "fail"
+    NOT_CHECKED = "not_checked"
+    INFORMATIVE = "informative"
+
+
+class ModuleId(str, Enum):
+    """Identificador estável de cada módulo de cálculo (tarefa 1.1 / secção 3)."""
+
+    STEEL_SECTION = "steel_section"
+    LATERAL_TORSIONAL_BUCKLING = "lateral_torsional_buckling"
+    BASE_PLATE = "base_plate"
+    CONCRETE_ANCHORS = "concrete_anchors"
+    STEEL_CONNECTIONS = "steel_connections"
+    SEISMIC_EQUIVALENT_STATIC = "seismic_equivalent_static"
+    SERVICEABILITY = "serviceability"
+    LOAD_DISTRIBUTION_SURFACE = "load_distribution_surface"
