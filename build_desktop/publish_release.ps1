@@ -16,8 +16,10 @@ param(
     [string] $Version,
     [string] $Tag,
     [string] $ReleaseName,
-    [string] $TargetCommitish = "master",
+    [string] $TargetCommitish,
     [string] $Notes,
+    [string] $ChangelogPath = "CHANGELOG.md",
+    [int] $MaxAssetSizeMB = 300,
     [switch] $Draft,
     [switch] $Prerelease
 )
@@ -52,6 +54,29 @@ function Get-RepoSlug([string] $RepoRoot) {
     throw "Origin remote is not a GitHub repository: $remoteUrl"
 }
 
+function Get-DefaultBranch([string] $RepoRoot) {
+    $originHead = (git -C $RepoRoot symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>$null)
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($originHead)) {
+        return ($originHead.Trim() -replace '^origin/', '')
+    }
+
+    $remoteInfo = (git -C $RepoRoot remote show origin 2>$null)
+    if ($LASTEXITCODE -eq 0) {
+        foreach ($line in $remoteInfo) {
+            if ($line -match 'HEAD branch:\s*(.+)$') {
+                return $Matches[1].Trim()
+            }
+        }
+    }
+
+    $currentBranch = (git -C $RepoRoot branch --show-current 2>$null).Trim()
+    if (-not [string]::IsNullOrWhiteSpace($currentBranch)) {
+        return $currentBranch
+    }
+
+    throw "Could not determine target commitish. Pass -TargetCommitish explicitly."
+}
+
 function Get-GitHubToken() {
     $request = "protocol=https`nhost=github.com`n`n"
     $lines = $request | git credential fill
@@ -76,6 +101,43 @@ function Get-GitHubToken() {
     }
 
     return $values["password"]
+}
+
+function Get-ChangelogText([string] $RepoRoot, [string] $RelativePath) {
+    $path = Join-Path $RepoRoot $RelativePath
+    if (-not (Test-Path $path)) {
+        return ""
+    }
+
+    $content = Get-Content -Path $path -Raw
+    if ([string]::IsNullOrWhiteSpace($content)) {
+        return ""
+    }
+
+    return @"
+
+Changelog
+---------
+$content
+"@
+}
+
+function Test-ReleaseAsset([string] $AssetPath, [int] $MaximumSizeMB) {
+    if (-not (Test-Path $AssetPath)) {
+        throw "Required asset not found: $AssetPath"
+    }
+
+    $item = Get-Item $AssetPath
+    if ($item.Length -le 0) {
+        throw "Required asset is empty: $AssetPath"
+    }
+
+    $sizeMB = [math]::Round($item.Length / 1MB, 2)
+    if ($item.Length -gt ($MaximumSizeMB * 1MB)) {
+        throw "Asset $($item.Name) is $sizeMB MB, above the configured limit of $MaximumSizeMB MB"
+    }
+
+    return $sizeMB
 }
 
 function New-GitHubHeaders([string] $Token) {
@@ -179,7 +241,12 @@ if (-not $ReleaseName) {
     $ReleaseName = "SFSC v$Version"
 }
 
+if (-not $TargetCommitish) {
+    $TargetCommitish = Get-DefaultBranch -RepoRoot $repoRoot
+}
+
 if (-not $Notes) {
+    $changelog = Get-ChangelogText -RepoRoot $repoRoot -RelativePath $ChangelogPath
     $Notes = @"
 Portable Windows release for SFSC v$Version.
 
@@ -195,6 +262,12 @@ Usage:
 3. Run SFSC.exe.
 
 No installer is required.
+
+Scope and safety:
+- SFSC supports the documented engineering scope and weight policy only.
+- Results marked REQUIRES_SPECIALIST must be reviewed by a qualified structural engineer.
+- If Windows SmartScreen or antivirus flags the executable, confirm the SHA-256 and download source before choosing "Run anyway".
+$changelog
 "@
 }
 
@@ -203,10 +276,11 @@ $assets = @(
     (Join-Path $repoRoot "dist\SFSC.exe")
 )
 
+Write-Step "Validating release assets"
+$assetSizes = @{}
 foreach ($asset in $assets) {
-    if (-not (Test-Path $asset)) {
-        throw "Required asset not found: $asset"
-    }
+    $assetSizes[$asset] = Test-ReleaseAsset -AssetPath $asset -MaximumSizeMB $MaxAssetSizeMB
+    Write-Host ("{0}: {1} MB" -f ([System.IO.Path]::GetFileName($asset)), $assetSizes[$asset])
 }
 
 Write-Step "Resolving repository and credentials"
@@ -217,7 +291,7 @@ $headers = New-GitHubHeaders -Token $token
 Write-Step "Checking release $Tag in $repoSlug"
 $release = Get-ReleaseByTag -RepoSlug $repoSlug -TagName $Tag -Headers $headers
 if (-not $release) {
-    Write-Step "Creating release $ReleaseName"
+    Write-Step "Creating release $ReleaseName from $TargetCommitish"
     $release = New-Release -RepoSlug $repoSlug -TagName $Tag -ReleaseTitle $ReleaseName -Target $TargetCommitish -ReleaseNotes $Notes -IsDraft:$Draft.IsPresent -IsPrerelease:$Prerelease.IsPresent -Headers $headers
 } else {
     Write-Host "Release already exists: $($release.html_url)" -ForegroundColor Yellow

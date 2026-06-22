@@ -37,6 +37,7 @@ from .base_plate import calculate_base_plate
 from .checker import classify, run_checker
 from .loads import calculate_loads
 from .metal_connections import calculate_metal_connection
+from .quantities import calculate_quantities
 from .section_verifier import (
     auto_select_section,
     find_passing_sections,
@@ -700,6 +701,7 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
     )
     fan_result.status = run_checker(inp, fan_result, extra_statuses=recovered_statuses)
     fan_result.classification_level = classify(inp, fan_result)
+    fan_result.quantities = calculate_quantities(inp, fan_result)
 
     if fan_result.classification_level.value == "REQUIRES_SPECIALIST":
         warn_items.append(
