@@ -13,6 +13,7 @@ from sfsc.enums import (
     LoadDirection,
     LoadDistributionMethod,
     ManualLoadType,
+    ServiceabilityLimit,
     SteelConnectionType,
     SupportFixationMedium,
     SupportType,
@@ -39,6 +40,12 @@ _DISTRIBUTION_KEYS = {
     LoadDistributionMethod.TWO_WAY: "loadDistribution.twoWay",
     LoadDistributionMethod.TRIBUTARY_WIDTH: "loadDistribution.tributaryWidth",
     LoadDistributionMethod.MANUAL: "loadDistribution.manual",
+}
+_SERVICEABILITY_LIMIT_KEYS = {
+    ServiceabilityLimit.L_200: "sidebar.modules.serviceabilityLimit.l200",
+    ServiceabilityLimit.L_250: "sidebar.modules.serviceabilityLimit.l250",
+    ServiceabilityLimit.L_360: "sidebar.modules.serviceabilityLimit.l360",
+    ServiceabilityLimit.CUSTOM: "sidebar.modules.serviceabilityLimit.custom",
 }
 _MANUAL_TYPE_KEYS = {
     ManualLoadType.POINT: "manualLoadType.point",
@@ -257,6 +264,8 @@ def render(
         st.warning(t("benchmark.note", lang))
 
     c1, c2 = st.columns(2)
+    serv_limit = ServiceabilityLimit.L_250
+    serv_custom_limit = None
     with c1:
         inc_dyn = st.checkbox(t("calculation.modules.dynamicFactor", lang), value=True)
         inc_biax = st.checkbox(t("calculation.modules.biaxialBending", lang), value=True)
@@ -272,6 +281,22 @@ def render(
         inc_conn = st.checkbox(t("calculation.modules.steelConnections", lang), value=True)
         inc_seis = st.checkbox(t("calculation.modules.seismicEquivalentStatic", lang), value=True)
         inc_serv = st.checkbox(t("calculation.modules.serviceability", lang), value=False)
+        if inc_serv:
+            serv_limit = st.selectbox(
+                t("sidebar.modules.serviceabilityLimit", lang),
+                list(ServiceabilityLimit),
+                index=1,
+                format_func=lambda item: t(_SERVICEABILITY_LIMIT_KEYS[item], lang),
+                help=t("sidebar.modules.serviceabilityLimitHelp", lang),
+            )
+            if serv_limit == ServiceabilityLimit.CUSTOM:
+                serv_custom_limit = st.number_input(
+                    t("sidebar.modules.serviceabilityCustomLimit", lang),
+                    min_value=50.0,
+                    value=250.0,
+                    step=10.0,
+                    help=t("sidebar.modules.serviceabilityCustomLimitHelp", lang),
+                )
 
     anchor_layout = None
     if fix_medium == SupportFixationMedium.CONCRETE and (inc_bp or inc_anchors):
@@ -347,5 +372,7 @@ def render(
             "include_steel_connections": inc_conn,
             "include_seismic_equivalent_static": inc_seis,
             "include_serviceability": inc_serv,
+            "serviceability_limit": serv_limit.value,
+            "serviceability_custom_limit_divisor": serv_custom_limit,
         },
     }

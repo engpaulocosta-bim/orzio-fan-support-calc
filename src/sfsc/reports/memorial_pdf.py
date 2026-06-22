@@ -8,7 +8,7 @@ from pathlib import Path
 from .. import __version__
 from ..assessment import assess_result
 from ..engineering import CalculationResultState
-from ..enums import CheckStatus
+from ..enums import CheckStatus, ModuleId
 from ..i18n import Lang, t
 from ..models import ReportContext
 
@@ -532,25 +532,67 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     # ── Phase 07: Serviceability status ─────────────────────────────────────
     story.append(Paragraph(t("report.section.serviceability", lang), S_h1))
     _include_sls = inp.calculation_options.include_serviceability if inp else False
-    _displacement_available = bool(res and res.solver_displacements)
+    _sls_check = (
+        next((check for check in res.module_breakdown if check.id == ModuleId.SERVICEABILITY), None)
+        if res and res.module_breakdown
+        else None
+    )
+    _serviceability_values = (
+        dict(_sls_check.intermediate_values)
+        if _sls_check is not None and _sls_check.status != CheckStatus.NOT_CHECKED
+        else {}
+    )
+    _check_status_key = {
+        CheckStatus.OK: "status.ok",
+        CheckStatus.MARGINAL: "status.marginal",
+        CheckStatus.FAIL: "status.fail",
+    }
     if not _include_sls:
         _sls_state = t("engineering.state.notApplicable", lang)
-        _sls_reason = "Serviceability module not enabled in calculation options."
-    elif _displacement_available:
-        _sls_state = t("engineering.state.verified", lang)
-        _sls_reason = "Displacement results available from solver."
+        _sls_reason = t("report.label.serviceabilityDisabled", lang)
+    elif _sls_check is not None and _sls_check.status != CheckStatus.NOT_CHECKED:
+        _sls_state = t(_check_status_key.get(_sls_check.status, "status.ok"), lang)
+        _sls_reason = (
+            t("report.label.serviceabilityExceeded", lang)
+            if _sls_check.status == CheckStatus.FAIL
+            else t("report.label.serviceabilityAtLimit", lang)
+            if _sls_check.status == CheckStatus.MARGINAL
+            else t("report.label.serviceabilityChecked", lang)
+        )
     else:
         _sls_state = t("engineering.state.notVerified", lang)
         _sls_reason = t("report.label.deflectionNotAvailable", lang)
-    story.append(
-        kv_table(
+    _sls_rows = [
+        (t("report.label.serviceabilityStatus", lang), _sls_state),
+        (t("report.label.serviceabilityReason", lang), _sls_reason),
+    ]
+    if _serviceability_values:
+        _max_deflection_value = _serviceability_values["max_vertical_deflection_m"]
+        _allowable_value = _serviceability_values["allowable_deflection_m"]
+        _span_value = _serviceability_values["relevant_span_m"]
+        _eta_value = _serviceability_values["eta_els"]
+        assert isinstance(_max_deflection_value, int | float)
+        assert isinstance(_allowable_value, int | float)
+        assert isinstance(_span_value, int | float)
+        assert isinstance(_eta_value, int | float)
+        _max_deflection_mm = float(_max_deflection_value) * 1000.0
+        _allowable_mm = float(_allowable_value) * 1000.0
+        _span_m = float(_span_value)
+        _limit_label = str(_sls_check.inputs.get("limit_label", "L/250")) if _sls_check else "L/250"
+        _eta_els = float(_eta_value)
+        _sls_rows.extend(
             [
-                (t("report.label.serviceabilityStatus", lang), _sls_state),
-                (t("report.label.serviceabilityReason", lang), _sls_reason),
+                (t("report.label.maxVerticalDeflection", lang), f"{_max_deflection_mm:.2f} mm"),
+                (
+                    t("report.label.deflectionLimit", lang),
+                    f"{_limit_label} = {_allowable_mm:.2f} mm",
+                ),
+                (t("report.label.relevantSpan", lang), f"{_span_m:.3f} m"),
+                (t("report.label.serviceabilityEta", lang), f"{_eta_els:.3f}"),
             ]
         )
-    )
-    if _include_sls and not _displacement_available:
+    story.append(kv_table(_sls_rows))
+    if _include_sls and (_sls_check is None or _sls_check.status == CheckStatus.NOT_CHECKED):
         story.append(
             Paragraph(
                 f"⚠ {t('report.label.serviceabilityNotVerified', lang)}",
@@ -1271,7 +1313,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     _phase07_warnings: list[str] = []
     if not _is_global_frame:
         _phase07_warnings.append(t("warning.model.simplified", _lang))
-    if _include_sls and not _displacement_available:
+    if _include_sls and (_sls_check is None or _sls_check.status == CheckStatus.NOT_CHECKED):
         _phase07_warnings.append(t("warning.serviceability.notVerified", _lang))
     if not _has_connection_rows:
         _phase07_warnings.append(t("warning.connection.basePlateNotVerified", _lang))

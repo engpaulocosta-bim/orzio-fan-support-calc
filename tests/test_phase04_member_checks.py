@@ -93,13 +93,13 @@ def test_phase04_bracketed_member_checks_keep_member_specific_results():
     )
 
 
-def test_phase04_serviceability_and_connections_remain_not_verified():
+def test_phase04_serviceability_uses_solver_and_connections_remain_not_verified():
     ctx = run_full_calculation(
         _cantilever_input(calculation_options=CalculationOptions(include_serviceability=True))
     )
 
     assert ctx.engineering_report_state.state_for("serviceability").state == (
-        CalculationResultState.NOT_VERIFIED
+        CalculationResultState.REQUIRES_ENGINEER_REVIEW
     )
     assert ctx.engineering_report_state.state_for("connection_checks").state == (
         CalculationResultState.NOT_VERIFIED

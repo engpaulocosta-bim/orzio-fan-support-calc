@@ -87,7 +87,7 @@ def test_phase03_engineering_model_uses_global_frame_for_supported_case():
     )
 
 
-def test_serviceability_remains_not_verified_even_with_solver_results():
+def test_serviceability_is_verified_when_solver_results_exist():
     from sfsc.models import CalculationOptions
 
     ctx = run_full_calculation(
@@ -98,7 +98,7 @@ def test_serviceability_remains_not_verified_even_with_solver_results():
         CalculationResultState.VERIFIED
     )
     assert ctx.engineering_report_state.state_for("serviceability").state == (
-        CalculationResultState.NOT_VERIFIED
+        CalculationResultState.REQUIRES_ENGINEER_REVIEW
     )
 
 
