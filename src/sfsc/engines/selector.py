@@ -44,11 +44,16 @@ from .anchor import calculate_anchor
 from .base_plate import calculate_base_plate
 from .checker import classify, run_checker
 from .connection_verifier import build_phase05_connection_rows
-from .global_frame import GlobalFrameAnalysisResult, run_global_frame_analysis
+from .global_frame import (
+    GlobalFrameAnalysisResult,
+    run_global_frame_analysis,
+    run_platform_modal_analysis,
+)
 from .ifc_import import build_import_review
 from .load_surfaces import build_load_path_summary, effective_distribution_method
 from .loads import calculate_loads
 from .metal_connections import calculate_metal_connection
+from .modal_analysis import ModalAnalysisResult
 from .quantities import calculate_quantities
 from .section_verifier import (
     MAX_UTILIZATION,
@@ -263,6 +268,26 @@ def _serviceability_check_data(
         "limit_label": inp.calculation_options.serviceability_limit_label(),
         "eta_els": eta_els,
     }
+
+
+def _resolve_excitation_frequencies(inp: FanSupportInput) -> list[float]:
+    """Return excitation frequencies [Hz] for all fan units.
+
+    Priority:
+    1. ``calculation_options.excitation_frequency_hz`` (explicit override).
+    2. ``fan_unit.speed_rpm`` converted to Hz (rpm / 60).
+    Falls back to an empty list (modal analysis will report NOT_VERIFIED).
+    """
+
+    explicit = inp.calculation_options.excitation_frequency_hz
+    if explicit is not None and explicit > 0.0:
+        return [explicit]
+
+    freqs = []
+    for unit in inp.fan_units:
+        if unit.speed_rpm is not None and unit.speed_rpm > 0.0:
+            freqs.append(unit.speed_rpm / 60.0)
+    return freqs
 
 
 def _select_platform_section_from_grillage(
@@ -1175,6 +1200,36 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             )
         )
 
+    modal_result: ModalAnalysisResult | None = None
+    opts = inp.calculation_options
+    if opts.include_modal_frequency and inp.has_platform_grillage and section is not None:
+        excitation_hz = _resolve_excitation_frequencies(inp)
+        modal_result = run_platform_modal_analysis(
+            inp,
+            section,
+            orientation_deg,
+            excitation_hz,
+        )
+        citations.append(
+            CitationItem(
+                standard_id="VDI 3840",
+                clause="Blatt 1",
+                description="Verificação de afastamento à ressonância: faixa proibida [0.7, 1.3]×f_exc.",
+            )
+        )
+        if modal_result.resonance_violated:
+            warn_items.append(
+                WarningItem(
+                    code="W-MODAL-001",
+                    severity="CRITICAL",
+                    message=(
+                        f"RESSONÂNCIA: f1={modal_result.first_frequency_hz} Hz está dentro da "
+                        f"faixa proibida [0.7, 1.3]×f_excitação. Consultar especialista em vibrações."
+                    ),
+                    module="modal_analysis",
+                )
+            )
+
     breakdown: list[CheckResult] = []
 
     def _msg(severity: str, key: str) -> DiagnosticMessage:
@@ -1387,6 +1442,73 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                         else "warning.surface.simplifiedDistribution",
                     ),
                 ],
+            )
+        )
+
+    if opts.include_modal_frequency:
+        if modal_result is not None and modal_result.solved:
+            modal_eta = (
+                max(modal_result.frequency_ratios) / 1.3
+                if modal_result.resonance_violated
+                else min(
+                    abs(r - 1.0) / 0.3
+                    for r in modal_result.frequency_ratios
+                )
+                if modal_result.frequency_ratios
+                else None
+            )
+            modal_status = (
+                CheckStatus.FAIL if modal_result.resonance_violated else CheckStatus.OK
+            )
+            breakdown.append(
+                CheckResult(
+                    id=ModuleId.MODAL_FREQUENCY,
+                    label_key="calculation.modules.modalFrequency",
+                    eta=round(float(modal_eta), 4) if modal_eta is not None else None,
+                    status=modal_status,
+                    clause_refs=["VDI 3840 Blatt 1"],
+                    messages=[
+                        _msg(
+                            "critical" if modal_result.resonance_violated else "info",
+                            "warning.modal.resonanceViolated"
+                            if modal_result.resonance_violated
+                            else "warning.modal.verified",
+                        ),
+                        _msg("info", "warning.modal.limitationStaticFactor"),
+                    ],
+                    inputs={
+                        "first_frequency_hz": float(modal_result.first_frequency_hz or 0.0),
+                        "excitation_frequencies_hz": modal_result.excitation_frequencies_hz,
+                        "frequency_ratios": modal_result.frequency_ratios,
+                        "resonance_band_low": 0.7,
+                        "resonance_band_high": 1.3,
+                    },
+                    intermediate_values=dict(modal_result.intermediate),
+                )
+            )
+        else:
+            failure_key = (
+                "warning.modal.noExcitationFrequency"
+                if modal_result is not None
+                and modal_result.failure_reason == "modal_no_excitation_frequency"
+                else "warning.modal.solverFailed"
+            )
+            breakdown.append(
+                CheckResult(
+                    id=ModuleId.MODAL_FREQUENCY,
+                    label_key="calculation.modules.modalFrequency",
+                    status=CheckStatus.NOT_CHECKED,
+                    clause_refs=["VDI 3840 Blatt 1"],
+                    messages=[_msg("warning", failure_key)],
+                )
+            )
+    else:
+        breakdown.append(
+            CheckResult(
+                id=ModuleId.MODAL_FREQUENCY,
+                label_key="calculation.modules.modalFrequency",
+                status=CheckStatus.NOT_CHECKED,
+                messages=[_msg("warning", "warning.modal.disabled")],
             )
         )
 
