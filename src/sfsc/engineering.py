@@ -429,7 +429,7 @@ def _build_frame_entities(
             EngineeringNode(
                 id=str(node["id"]),
                 x_m=_as_float(node["x_m"]),
-                y_m=0.0,
+                y_m=_as_float(node.get("y_m", 0.0)),
                 z_m=_as_float(node["z_m"]),
             )
             for node in result.solver_nodes
@@ -468,8 +468,7 @@ def _build_frame_entities(
                 member_id=str(release["member_id"]),
                 node_end=str(release["node_end"]),
                 releases={
-                    str(key): bool(value)
-                    for key, value in dict(release["releases"]).items()
+                    str(key): bool(value) for key, value in dict(release["releases"]).items()
                 },
             )
             for release in result.solver_releases
@@ -519,12 +518,26 @@ def _build_frame_entities(
                     EngineeringSupport(
                         id=f"support-{member_id}-start",
                         node_id=start_id,
-                        restraints={"ux": True, "uy": True, "uz": True, "rx": False, "ry": False, "rz": False},
+                        restraints={
+                            "ux": True,
+                            "uy": True,
+                            "uz": True,
+                            "rx": False,
+                            "ry": False,
+                            "rz": False,
+                        },
                     ),
                     EngineeringSupport(
                         id=f"support-{member_id}-end",
                         node_id=end_id,
-                        restraints={"ux": True, "uy": True, "uz": True, "rx": False, "ry": False, "rz": False},
+                        restraints={
+                            "ux": True,
+                            "uy": True,
+                            "uz": True,
+                            "rx": False,
+                            "ry": False,
+                            "rz": False,
+                        },
                     ),
                 ]
             )
@@ -580,15 +593,33 @@ def _build_frame_entities(
 def _build_load_cases(inp: FanSupportInput) -> list[EngineeringLoadCase]:
     surface_origin = _surface_type_name(inp.walking_surface.surface_type)
     return [
-        EngineeringLoadCase(id="case_g", name="G", type="permanent", origin="support_self_weight_and_surface"),
-        EngineeringLoadCase(id="case_q", name="Q", type="variable", origin="dynamic_and_imposed_loads"),
-        EngineeringLoadCase(id="case_eq", name="EQ", type="permanent", origin="equipment_weight_or_surface_equipment"),
-        EngineeringLoadCase(id="case_manual", name="MANUAL", type="manual", origin="manual_engineering_load"),
-        EngineeringLoadCase(id="case_seismic", name="E_SEISMIC", type="accidental", origin=f"seismic_equivalent_static:{surface_origin}"),
+        EngineeringLoadCase(
+            id="case_g", name="G", type="permanent", origin="support_self_weight_and_surface"
+        ),
+        EngineeringLoadCase(
+            id="case_q", name="Q", type="variable", origin="dynamic_and_imposed_loads"
+        ),
+        EngineeringLoadCase(
+            id="case_eq",
+            name="EQ",
+            type="permanent",
+            origin="equipment_weight_or_surface_equipment",
+        ),
+        EngineeringLoadCase(
+            id="case_manual", name="MANUAL", type="manual", origin="manual_engineering_load"
+        ),
+        EngineeringLoadCase(
+            id="case_seismic",
+            name="E_SEISMIC",
+            type="accidental",
+            origin=f"seismic_equivalent_static:{surface_origin}",
+        ),
     ]
 
 
-def _build_load_combinations(combinations: list[LoadCombination]) -> list[EngineeringLoadCombination]:
+def _build_load_combinations(
+    combinations: list[LoadCombination],
+) -> list[EngineeringLoadCombination]:
     mapping: dict[str, list[EngineeringLoadCombinationFactor]] = {
         "ULS_fundamental": [
             EngineeringLoadCombinationFactor(load_case_id="case_g", factor=1.35),
@@ -730,7 +761,9 @@ def _build_solver_results(
         status=solver_state,
         reactions=[],
         displacements=[],
-        member_forces=member_force_rows if solver_state == CalculationResultState.SIMPLIFIED else [],
+        member_forces=member_force_rows
+        if solver_state == CalculationResultState.SIMPLIFIED
+        else [],
         warnings=warnings,
     )
 
@@ -758,9 +791,7 @@ def _build_member_checks(
                     load_combination_id=str(row.get("governing_combination"))
                     if row.get("governing_combination")
                     else None,
-                    warnings=[
-                        "Member checks use solver-recovered internal forces."
-                    ]
+                    warnings=["Member checks use solver-recovered internal forces."]
                     + [str(item) for item in row.get("warnings", [])],
                 )
             )
@@ -912,7 +943,9 @@ def build_phase01_engineering_model(
     load_surface_state = determine_load_surface_state(
         has_load_surface=inp.walking_surface.surface_type != WalkingSurfaceType.NONE,
         has_manual_loads=bool(inp.manual_loads),
-        load_distribution_available=False,
+        load_distribution_available=(
+            inp.has_platform_grillage and bool(load_path.distributed_line_loads)
+        ),
         requires_engineer_review=load_path.requires_engineer_review,
     )
     import_review_state = determine_import_review_state(import_review)
@@ -953,14 +986,19 @@ def build_phase01_engineering_model(
                     ]
                 )
             )
-            + [item.message for item in (import_review.warnings if import_review is not None else [])],
+            + [
+                item.message
+                for item in (import_review.warnings if import_review is not None else [])
+            ],
         ),
         EngineeringStateItem(
             id="solver_results",
             label_key="engineering.item.solverResults",
             state=solver_state,
             notes=(
-                ["Global frame nodal displacements and support reactions are available from the Phase 03 solver."]
+                [
+                    "Global frame nodal displacements and support reactions are available from the Phase 03 solver."
+                ]
                 if solver_state == CalculationResultState.VERIFIED
                 else ["Global frame nodal displacements and support reactions are not available."]
             )
@@ -971,12 +1009,18 @@ def build_phase01_engineering_model(
             label_key="engineering.item.memberChecks",
             state=member_check_state,
             notes=(
-                ["Member verification uses solver-recovered internal forces from the Phase 04 path."]
+                [
+                    "Member verification uses solver-recovered internal forces from the Phase 04 path."
+                ]
                 if result.member_check_rows
                 else (
-                    ["At least one member verification failed and must not be presented as verified."]
+                    [
+                        "At least one member verification failed and must not be presented as verified."
+                    ]
                     if member_check_state == CalculationResultState.FAILED
-                    else ["Section/member utilization is still derived from the simplified member model."]
+                    else [
+                        "Section/member utilization is still derived from the simplified member model."
+                    ]
                 )
             ),
         ),
@@ -997,7 +1041,9 @@ def build_phase01_engineering_model(
             notes=(
                 ["Connection checks use explicit Phase 05 input data and solver support reactions."]
                 if result.connection_check_rows
-                else ["Connection checks remain unavailable for the current input and must not be reported as verified."]
+                else [
+                    "Connection checks remain unavailable for the current input and must not be reported as verified."
+                ]
             ),
         ),
         EngineeringStateItem(
@@ -1011,7 +1057,9 @@ def build_phase01_engineering_model(
         ),
     ]
 
-    contains_simplified = any(item.state == CalculationResultState.SIMPLIFIED for item in state_items)
+    contains_simplified = any(
+        item.state == CalculationResultState.SIMPLIFIED for item in state_items
+    )
     contains_unverified = any(
         item.state
         in (

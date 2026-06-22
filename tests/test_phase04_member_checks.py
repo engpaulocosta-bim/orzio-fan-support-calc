@@ -87,14 +87,15 @@ def test_phase04_bracketed_member_checks_keep_member_specific_results():
 
     row_ids = {row["member_id"] for row in ctx.fan_support_result.member_check_rows}
     assert row_ids == {"member-beam", "member-diagonal"}
-    assert "member-diagonal.buckling_z" in ctx.fan_support_result.section_verification.utilization_by_check
+    assert (
+        "member-diagonal.buckling_z"
+        in ctx.fan_support_result.section_verification.utilization_by_check
+    )
 
 
 def test_phase04_serviceability_and_connections_remain_not_verified():
     ctx = run_full_calculation(
-        _cantilever_input(
-            calculation_options=CalculationOptions(include_serviceability=True)
-        )
+        _cantilever_input(calculation_options=CalculationOptions(include_serviceability=True))
     )
 
     assert ctx.engineering_report_state.state_for("serviceability").state == (
@@ -120,5 +121,6 @@ def test_phase04_failed_member_checks_are_not_reported_as_verified():
         CalculationResultState.FAILED
     )
     assert any(
-        check.status == CalculationResultState.FAILED for check in ctx.engineering_model.member_checks
+        check.status == CalculationResultState.FAILED
+        for check in ctx.engineering_model.member_checks
     )

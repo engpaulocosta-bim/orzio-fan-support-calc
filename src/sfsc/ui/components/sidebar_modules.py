@@ -36,6 +36,7 @@ _FIXATION_KEYS = {
 }
 _DISTRIBUTION_KEYS = {
     LoadDistributionMethod.ONE_WAY: "loadDistribution.oneWay",
+    LoadDistributionMethod.TWO_WAY: "loadDistribution.twoWay",
     LoadDistributionMethod.TRIBUTARY_WIDTH: "loadDistribution.tributaryWidth",
     LoadDistributionMethod.MANUAL: "loadDistribution.manual",
 }
@@ -59,21 +60,32 @@ _DIRECTION_KEYS = {
 }
 
 
-def _member_target_options(support_type: SupportType, platform_n_beams: int) -> list[str]:
+def _member_target_options(
+    support_type: SupportType,
+    platform_n_beams: int,
+    platform_n_crossbeams: int,
+) -> list[str]:
     if support_type == SupportType.PLATFORM_FRAME_BRACED:
-        return [f"beam_{index}" for index in range(1, max(2, platform_n_beams) + 1)]
+        labels = [f"beam_{index}" for index in range(1, max(2, platform_n_beams) + 1)]
+        labels.extend(f"crossbeam_{index}" for index in range(1, max(0, platform_n_crossbeams) + 1))
+        return labels
     return ["primary_member"]
 
 
 def render(
     support_type: SupportType,
     platform_n_beams: int,
+    platform_n_crossbeams: int,
     lang: Lang = Lang.PT,
 ) -> dict[str, Any]:
     """Render load surface, fixation, mode, and optional-module controls."""
     st.subheader("8. Superfície e fixação")
 
-    member_targets = _member_target_options(support_type, platform_n_beams)
+    member_targets = _member_target_options(
+        support_type,
+        platform_n_beams,
+        platform_n_crossbeams,
+    )
 
     surf_type = st.selectbox(
         t("sidebar.surface.type", lang),
@@ -85,7 +97,13 @@ def render(
     imposed_load = 0.0
     maintenance_load = 0.0
     surf_distributed = False
-    distribution_method = LoadDistributionMethod.ONE_WAY
+    distribution_method = (
+        LoadDistributionMethod.TWO_WAY
+        if support_type == SupportType.PLATFORM_FRAME_BRACED
+        and platform_n_beams >= 2
+        and platform_n_crossbeams >= 2
+        else LoadDistributionMethod.ONE_WAY
+    )
     surface_targets: list[str] = []
 
     if surf_type != WalkingSurfaceType.NONE:

@@ -402,9 +402,7 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
                     ),
                     (
                         t("report.column.confirmed", lang),
-                        t("common.yes", lang)
-                        if import_review.confirmed
-                        else t("common.no", lang),
+                        t("common.yes", lang) if import_review.confirmed else t("common.no", lang),
                     ),
                     (
                         t("report.column.importedElements", lang),
@@ -509,7 +507,11 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     story.append(Paragraph(t("report.section.calculationModel", lang), S_h1))
     _solver_engine = res.solver_engine if res else "simplified"
     _is_global_frame = _solver_engine == "global_frame" and res and not res.solver_failed
-    _model_type_label = t("report.label.globalFrame", lang) if _is_global_frame else t("report.label.simplified", lang)
+    _model_type_label = (
+        t("report.label.globalFrame", lang)
+        if _is_global_frame
+        else t("report.label.simplified", lang)
+    )
     story.append(
         kv_table(
             [
@@ -575,7 +577,9 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
     def _connection_item_state(check_type: str) -> str:
         if not _has_connection_rows:
             return t("engineering.state.notVerified", lang)
-        matching = [r for r in (res.connection_check_rows if res else []) if r.get("type") == check_type]
+        matching = [
+            r for r in (res.connection_check_rows if res else []) if r.get("type") == check_type
+        ]
         if not matching:
             return t("engineering.state.notVerified", lang)
         statuses = {str(r.get("status", "")) for r in matching}
@@ -684,12 +688,32 @@ def generate_pdf(ctx: ReportContext, output_path: str | Path | None = None) -> b
             ("Excentricidade CG", f"{inp.eccentricity_mm:.0f} mm"),
             ("Factor dinâmico", f"{inp.dynamic_factor}  (VDI 3840)"),
             ("Anti-vibração", inp.anti_vibration.value),
-            (t("report.label.basePlateStatus", _lang), t("common.yes", _lang) if inp.include_base_plate else t("common.no", _lang)),
+            (
+                t("report.label.basePlateStatus", _lang),
+                t("common.yes", _lang) if inp.include_base_plate else t("common.no", _lang),
+            ),
             ("Classe de exposição", inp.exposure_class.value),
             ("Betão de suporte", inp.concrete_grade),
         ]
         if inp.cantilever_subtype:
             rows_geo.insert(1, ("Subtipo consola", inp.cantilever_subtype.value))
+        if inp.support_type.value == "platform_frame_braced":
+            rows_geo.extend(
+                [
+                    (
+                        t("report.label.platformModel", _lang),
+                        (
+                            t("report.label.grillage25d", _lang)
+                            if inp.has_platform_grillage
+                            else t("report.label.legacyParallelBeams", _lang)
+                        ),
+                    ),
+                    (
+                        t("report.label.platformGrid", _lang),
+                        f"{inp.platform_n_beams} / {inp.platform_n_crossbeams}",
+                    ),
+                ]
+            )
         story.append(kv_table(rows_geo))
     story.append(Spacer(1, 4 * mm))
 

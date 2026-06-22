@@ -107,8 +107,7 @@ def verify_section(
         ) / 3.0
         g_mpa = spec.G_mpa
         mcr_nmm = (math.pi / lcr_mm) * math.sqrt(
-            e_mpa * i_z_mm4 * g_mpa * i_t_mm4
-            + (math.pi * e_mpa / lcr_mm) ** 2 * i_z_mm4 * i_w_mm6
+            e_mpa * i_z_mm4 * g_mpa * i_t_mm4 + (math.pi * e_mpa / lcr_mm) ** 2 * i_z_mm4 * i_w_mm6
         )
         w_pl_y_mm3 = local_props.local_wy_pl_mm3
         lambda_lt = math.sqrt(w_pl_y_mm3 * fy_mpa / mcr_nmm) if mcr_nmm > 0 else 2.0
@@ -118,9 +117,7 @@ def verify_section(
         if lambda_lt <= lambda_lt_0:
             chi_lt = 1.0
         else:
-            phi_lt = 0.5 * (
-                1.0 + alpha_lt * (lambda_lt - lambda_lt_0) + beta_lt * lambda_lt**2
-            )
+            phi_lt = 0.5 * (1.0 + alpha_lt * (lambda_lt - lambda_lt_0) + beta_lt * lambda_lt**2)
             chi_lt = min(
                 1.0,
                 1.0 / (phi_lt + math.sqrt(phi_lt**2 - beta_lt * lambda_lt**2)),
@@ -336,14 +333,25 @@ def _member_length_mm_map(
     solver_members: list[dict[str, object]],
 ) -> dict[str, float]:
     node_map = {
-        str(node["id"]): (_as_float(node["x_m"]), _as_float(node["z_m"]))
+        str(node["id"]): (
+            _as_float(node["x_m"]),
+            _as_float(node.get("y_m", 0.0)),
+            _as_float(node["z_m"]),
+        )
         for node in solver_nodes
     }
     lengths: dict[str, float] = {}
     for member in solver_members:
         node_i = node_map[str(member["node_i"])]
         node_j = node_map[str(member["node_j"])]
-        lengths[str(member["id"])] = math.hypot(node_j[0] - node_i[0], node_j[1] - node_i[1]) * 1000.0
+        lengths[str(member["id"])] = (
+            math.sqrt(
+                (node_j[0] - node_i[0]) ** 2
+                + (node_j[1] - node_i[1]) ** 2
+                + (node_j[2] - node_i[2]) ** 2
+            )
+            * 1000.0
+        )
     return lengths
 
 
@@ -401,13 +409,16 @@ def verify_solver_member_envelope(
         force_rows = [
             row
             for row in solver_member_end_forces
-            if str(row["member_id"]) == member_id and str(row["combination"]).upper().startswith("ULS")
+            if str(row["member_id"]) == member_id
+            and str(row["combination"]).upper().startswith("ULS")
         ]
         if not force_rows:
             continue
         member_kind = str(member["kind"])
         buckling_y_mm, buckling_z_mm = (
-            buckling_length_overrides_mm.get(member_id, (lengths_mm.get(member_id, 0.0), lengths_mm.get(member_id, 0.0)))
+            buckling_length_overrides_mm.get(
+                member_id, (lengths_mm.get(member_id, 0.0), lengths_mm.get(member_id, 0.0))
+            )
             if buckling_length_overrides_mm is not None
             else (lengths_mm.get(member_id, 0.0), lengths_mm.get(member_id, 0.0))
         )
@@ -424,7 +435,9 @@ def verify_solver_member_envelope(
             include_biaxial=False,
         )
         member_results.append((member_id, result))
-        governing_combo = next(combo for combo in combos if combo.name == result.governing_combination)
+        governing_combo = next(
+            combo for combo in combos if combo.name == result.governing_combination
+        )
         member_rows.append(
             {
                 "member_id": member_id,

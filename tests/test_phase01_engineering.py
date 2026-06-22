@@ -138,9 +138,7 @@ def test_tramex_is_treated_as_load_surface_not_base_plate():
 
 
 def test_json_export_includes_phase01_engineering_state():
-    ctx = run_full_calculation(
-        _inp(section_orientation=SectionOrientation.WEAK_AXIS_VERTICAL)
-    )
+    ctx = run_full_calculation(_inp(section_orientation=SectionOrientation.WEAK_AXIS_VERTICAL))
     payload = export_report_dict(ctx, calc_id="00000000-0000-4000-8000-000000000003")
 
     assert payload["engineering_model"]["sections"][0]["orientation_deg"] == pytest.approx(90.0)

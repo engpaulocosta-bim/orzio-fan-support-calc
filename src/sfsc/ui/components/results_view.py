@@ -83,9 +83,7 @@ def _connection_check_rows(
                     lang,
                 ),
                 t("report.column.eta", lang): row.get("utilization_ratio"),
-                t("report.column.combination", lang): str(
-                    row.get("governing_combination", "")
-                ),
+                t("report.column.combination", lang): str(row.get("governing_combination", "")),
                 t("report.column.reactionFx", lang): row.get("reaction_fx_kN"),
                 t("report.column.reactionFz", lang): row.get("reaction_fz_kN"),
                 t("report.column.reactionMy", lang): row.get("reaction_my_kNm"),
@@ -266,7 +264,7 @@ def _render_tabs(ctx: ReportContext, res, base_res, lang: Lang = Lang.PT) -> Non
         _tab_section(ctx, res, base_res)
     if res.platform:
         with next(tabs):
-            _tab_platform(res)
+            _tab_platform(res, lang)
     with next(tabs):
         _tab_base_plate(res)
     with next(tabs):
@@ -358,12 +356,8 @@ def _tab_section(ctx, res, base_res) -> None:
                         lang,
                     ),
                     t("report.column.eta", lang): row.get("utilization_ratio"),
-                    t("report.column.governingCheck", lang): str(
-                        row.get("governing_check", "")
-                    ),
-                    t("report.column.combination", lang): str(
-                        row.get("governing_combination", "")
-                    ),
+                    t("report.column.governingCheck", lang): str(row.get("governing_check", "")),
+                    t("report.column.combination", lang): str(row.get("governing_combination", "")),
                     t("report.column.axis", lang): _member_axis_label(
                         row.get("governing_axis"),
                         lang,
@@ -455,15 +449,28 @@ def _tab_base_plate(res) -> None:
     )
 
 
-def _tab_platform(res) -> None:
+def _tab_platform(res, lang: Lang = Lang.PT) -> None:
     platform = res.platform
     if not platform:
         return
     st.subheader(f"Plataforma {platform.length_mm:.0f} × {platform.width_mm:.0f} mm")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Nº vigas", str(platform.n_beams))
-    c2.metric("Carga por viga", f"{platform.load_per_beam_kN:.2f} kN")
-    c3.metric("Momento por viga", f"{platform.moment_per_beam_kNm:.2f} kNm")
+    c1.metric(
+        t("results.platform.beamsCrossbeams", lang),
+        f"{platform.n_beams}/{platform.n_crossbeams}",
+    )
+    if platform.analysis_model == "grillage_2_5d":
+        c2.metric(t("results.platform.maxShear", lang), f"{platform.load_per_beam_kN:.2f} kN")
+        c3.metric(
+            t("results.platform.maxMoment", lang),
+            f"{platform.moment_per_beam_kNm:.2f} kNm",
+        )
+    else:
+        c2.metric(t("results.platform.loadPerBeam", lang), f"{platform.load_per_beam_kN:.2f} kN")
+        c3.metric(
+            t("results.platform.momentPerBeam", lang),
+            f"{platform.moment_per_beam_kNm:.2f} kNm",
+        )
     st.dataframe(
         pd.DataFrame(
             [

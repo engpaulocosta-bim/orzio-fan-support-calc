@@ -349,6 +349,13 @@ class FanSupportInput(BaseModel):
         ge=2,
         description="Número de vigas paralelas da plataforma (mín. 2).",
     )
+    platform_n_crossbeams: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Number of crossbeam lines. Zero preserves the legacy longitudinal-beam model."
+        ),
+    )
     platform_width_mm: float | None = Field(
         default=None,
         gt=0,
@@ -423,8 +430,7 @@ class FanSupportInput(BaseModel):
         if self.section_orientation == SectionOrientation.CUSTOM_ROTATION:
             if self.section_rotation_deg is None:
                 raise ValueError(
-                    "section_rotation_deg obrigatório quando "
-                    "section_orientation=CUSTOM_ROTATION"
+                    "section_rotation_deg obrigatório quando section_orientation=CUSTOM_ROTATION"
                 )
             normalized = self.section_rotation_deg % 180.0
             if normalized not in (0.0, 90.0):
@@ -480,6 +486,10 @@ class FanSupportInput(BaseModel):
         from .units import mm_to_m
 
         return mm_to_m(self.platform_length_eff_mm) * mm_to_m(self.platform_width_eff_mm)
+
+    @property
+    def has_platform_grillage(self) -> bool:
+        return self.platform_n_beams >= 2 and self.platform_n_crossbeams >= 2
 
     @property
     def platform_surface_weight_kN(self) -> float:
@@ -758,6 +768,8 @@ class PlatformResult(BaseModel):
     """Síntese do modelo de plataforma/mesa de grelha."""
 
     n_beams: int
+    n_crossbeams: int = 0
+    analysis_model: str = "legacy_parallel_beams"
     braced: bool
     width_mm: float
     length_mm: float

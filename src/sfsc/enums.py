@@ -203,6 +203,7 @@ class ModuleId(str, Enum):
 
 class LoadDistributionMethod(str, Enum):
     ONE_WAY = "one_way"
+    TWO_WAY = "two_way"
     TRIBUTARY_WIDTH = "tributary_width"
     MANUAL = "manual"
 

@@ -37,7 +37,13 @@ def test_heavy_load_fails_or_marginal(heb200, heavy_combo):
     )
     # Pode passar ou falhar dependendo dos valores exactos — verificar que calcula
     assert result.utilization_ratio > 0.0
-    assert result.governing_check in ("bending_y", "shear", "ltb", "axial_tension", "axial_compression")
+    assert result.governing_check in (
+        "bending_y",
+        "shear",
+        "ltb",
+        "axial_tension",
+        "axial_compression",
+    )
 
 
 def test_auto_select_finds_section():

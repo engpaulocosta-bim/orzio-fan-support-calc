@@ -27,7 +27,9 @@ _NON_STRUCTURAL_CLASSES = {
     "cover",
     "ladder",
 }
-_SUPPORTED_SECTION_PREFIXES = {family.value for family in SectionFamily if family != SectionFamily.CUSTOM}
+_SUPPORTED_SECTION_PREFIXES = {
+    family.value for family in SectionFamily if family != SectionFamily.CUSTOM
+}
 _SUPPORTED_MATERIALS = {grade.value.upper() for grade in SteelGrade}
 
 
@@ -196,7 +198,9 @@ def build_import_review(
             continue
 
         if role == "unknown_structural":
-            member_warnings.append("Structural class is not explicitly recognised and needs review.")
+            member_warnings.append(
+                "Structural class is not explicitly recognised and needs review."
+            )
             _append_warning(
                 warnings,
                 code="W-IFC-003",
@@ -243,8 +247,13 @@ def build_import_review(
                 element_id=element.id,
             )
 
-        if element.orientation_deg is not None and (element.orientation_deg % 180.0) not in (0.0, 90.0):
-            member_warnings.append("Profile orientation is not one of the supported 0/90 degree cases.")
+        if element.orientation_deg is not None and (element.orientation_deg % 180.0) not in (
+            0.0,
+            90.0,
+        ):
+            member_warnings.append(
+                "Profile orientation is not one of the supported 0/90 degree cases."
+            )
             _append_warning(
                 warnings,
                 code="W-IFC-008",
@@ -340,7 +349,9 @@ def build_import_review(
         "Imported BIM/IFC geometry is treated as assisted input only and requires user review.",
     ]
     if supports:
-        assumptions.append("Support conditions were imported only where explicitly present in the source data.")
+        assumptions.append(
+            "Support conditions were imported only where explicitly present in the source data."
+        )
 
     return ImportedModelReview(
         source=payload.source,

@@ -34,12 +34,27 @@ def render(support_type: SupportType, lang: Lang = Lang.PT) -> dict[str, Any]:
         )
 
     platform_n_beams = 2
+    platform_n_crossbeams = 0
     platform_width_mm = None
     platform_length_mm = None
     if support_type == SupportType.PLATFORM_FRAME_BRACED:
         st.caption("Parâmetros específicos da plataforma metálica.")
         platform_n_beams = int(
-            st.number_input("Número de vigas paralelas", min_value=2, value=3, step=1)
+            st.number_input(
+                t("sidebar.geometry.platformLongitudinalBeams", lang),
+                min_value=2,
+                value=3,
+                step=1,
+            )
+        )
+        platform_n_crossbeams = int(
+            st.number_input(
+                t("sidebar.geometry.platformCrossbeams", lang),
+                min_value=0,
+                value=3,
+                step=1,
+                help=t("sidebar.geometry.platformCrossbeamsHelp", lang),
+            )
         )
         platform_width_mm = st.number_input(
             "Largura da plataforma [mm]",
@@ -146,6 +161,7 @@ def render(support_type: SupportType, lang: Lang = Lang.PT) -> dict[str, Any]:
         "dyn_fac": dyn_fac,
         "hanger_rod_mm": hanger_rod_mm,
         "platform_n_beams": platform_n_beams,
+        "platform_n_crossbeams": platform_n_crossbeams,
         "platform_width_mm": platform_width_mm,
         "platform_length_mm": platform_length_mm,
         "anti_vib": anti_vib,
