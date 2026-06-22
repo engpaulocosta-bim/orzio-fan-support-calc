@@ -201,6 +201,13 @@ class ModuleId(str, Enum):
     LOAD_DISTRIBUTION_SURFACE = "load_distribution_surface"
 
 
+class ServiceabilityLimit(str, Enum):
+    L_200 = "L/200"
+    L_250 = "L/250"
+    L_360 = "L/360"
+    CUSTOM = "custom"
+
+
 class LoadDistributionMethod(str, Enum):
     ONE_WAY = "one_way"
     TWO_WAY = "two_way"

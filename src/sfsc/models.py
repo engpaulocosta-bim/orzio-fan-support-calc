@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
@@ -29,6 +30,7 @@ from .enums import (
     SectionFamily,
     SectionOrientation,
     SeismicCode,
+    ServiceabilityLimit,
     SteelConnectionType,
     SteelGrade,
     StructuralCode,
@@ -55,12 +57,52 @@ class CalculationOptions(BaseModel):
     include_steel_connections: bool = True
     include_seismic_equivalent_static: bool = True
     include_serviceability: bool = False
+    serviceability_limit: ServiceabilityLimit = ServiceabilityLimit.L_250
+    serviceability_custom_limit_divisor: float | None = Field(default=None, gt=0.0)
+
+    @model_validator(mode="after")
+    def _validate_serviceability_limit(self) -> CalculationOptions:
+        if self.serviceability_limit == ServiceabilityLimit.CUSTOM:
+            if self.serviceability_custom_limit_divisor is None:
+                raise ValueError(
+                    "serviceability_custom_limit_divisor is required when serviceability_limit is custom"
+                )
+        else:
+            self.serviceability_custom_limit_divisor = None
+        return self
+
+    def serviceability_limit_divisor(self) -> float:
+        if self.serviceability_limit == ServiceabilityLimit.L_200:
+            return 200.0
+        if self.serviceability_limit == ServiceabilityLimit.L_360:
+            return 360.0
+        if self.serviceability_limit == ServiceabilityLimit.CUSTOM:
+            assert self.serviceability_custom_limit_divisor is not None
+            return float(self.serviceability_custom_limit_divisor)
+        return 250.0
+
+    def serviceability_limit_label(self) -> str:
+        divisor = self.serviceability_limit_divisor()
+        if abs(divisor - round(divisor)) <= 1e-9:
+            return f"L/{int(round(divisor))}"
+        return f"L/{divisor:g}"
 
     def fingerprint(self) -> str:
         """Assinatura curta e estável das opções (entra no hash de rastreabilidade)."""
         import hashlib
 
-        payload = "|".join(f"{k}={int(v)}" for k, v in sorted(self.model_dump().items()))
+        def _serialize(value: object) -> str:
+            if isinstance(value, bool):
+                return str(int(value))
+            if value is None:
+                return "null"
+            if isinstance(value, Enum):
+                return str(value.value)
+            return str(value)
+
+        payload = "|".join(
+            f"{key}={_serialize(value)}" for key, value in sorted(self.model_dump().items())
+        )
         return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
 

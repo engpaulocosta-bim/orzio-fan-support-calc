@@ -38,6 +38,7 @@ from ..models import (
 )
 from ..policy import WeightBand, weight_band, weight_warning
 from ..section_orientation import resolve_section_orientation_deg
+from ..units import mm_to_m
 from ..validators import validate_fan_support_input
 from .anchor import calculate_anchor
 from .base_plate import calculate_base_plate
@@ -70,6 +71,9 @@ from .support_types.platform_frame_braced import (
 )
 
 logger = logging.getLogger("sfsc.selector")
+
+_SERVICEABILITY_COMBINATION = "SLS_characteristic"
+_COORD_TOLERANCE_M = 1e-9
 
 _STRUCTURAL_CODE_MAP: dict[Country, StructuralCode] = {
     Country.PORTUGAL: StructuralCode.EC3_EN1993,
@@ -174,6 +178,91 @@ def _platform_support_steel_weight_kg(inp: FanSupportInput, section: SteelSectio
         )
         steel_kg += section.weight_kgm * n_beams * diagonal_length_m
     return steel_kg
+
+
+def _serviceability_relevant_span_m(
+    inp: FanSupportInput,
+    global_frame_result: GlobalFrameAnalysisResult,
+    node_id: str,
+) -> float:
+    if inp.support_type != SupportType.PLATFORM_FRAME_BRACED:
+        return mm_to_m(inp.span_mm)
+
+    if not inp.has_platform_grillage:
+        return mm_to_m(inp.platform_length_eff_mm)
+
+    node_map = {str(node["id"]): node for node in global_frame_result.nodes}
+    node = node_map.get(node_id)
+    if node is None:
+        return min(mm_to_m(inp.platform_length_eff_mm), mm_to_m(inp.platform_width_eff_mm))
+
+    x_m = _numeric(node["x_m"])
+    y_m = _numeric(node.get("y_m", 0.0))
+    same_y = [
+        _numeric(candidate["x_m"])
+        for candidate in global_frame_result.nodes
+        if abs(_numeric(candidate.get("y_m", 0.0)) - y_m) <= _COORD_TOLERANCE_M
+    ]
+    same_x = [
+        _numeric(candidate.get("y_m", 0.0))
+        for candidate in global_frame_result.nodes
+        if abs(_numeric(candidate["x_m"]) - x_m) <= _COORD_TOLERANCE_M
+    ]
+    spans = [
+        max(axis_values) - min(axis_values)
+        for axis_values in (same_y, same_x)
+        if len(axis_values) >= 2
+    ]
+    positive_spans = [span for span in spans if span > _COORD_TOLERANCE_M]
+    if positive_spans:
+        return min(positive_spans)
+    return min(mm_to_m(inp.platform_length_eff_mm), mm_to_m(inp.platform_width_eff_mm))
+
+
+def _serviceability_check_data(
+    inp: FanSupportInput,
+    global_frame_result: GlobalFrameAnalysisResult | None,
+) -> dict[str, object] | None:
+    if global_frame_result is None or global_frame_result.failed or not global_frame_result.solved:
+        return None
+
+    sls_displacements = [
+        row
+        for row in global_frame_result.displacements
+        if str(row["combination"]) == _SERVICEABILITY_COMBINATION
+    ]
+    if not sls_displacements:
+        return None
+
+    governing_row = max(sls_displacements, key=lambda row: abs(_numeric(row["uz_m"])))
+    max_vertical_deflection_m = abs(_numeric(governing_row["uz_m"]))
+    governing_node_id = str(governing_row["node_id"])
+    relevant_span_m = _serviceability_relevant_span_m(inp, global_frame_result, governing_node_id)
+    if relevant_span_m <= 0.0:
+        return None
+
+    limit_divisor = inp.calculation_options.serviceability_limit_divisor()
+    allowable_deflection_m = relevant_span_m / limit_divisor
+    if allowable_deflection_m <= 0.0:
+        return None
+
+    node_map = {str(node["id"]): node for node in global_frame_result.nodes}
+    governing_node = node_map.get(governing_node_id, {})
+    eta_els = max_vertical_deflection_m / allowable_deflection_m
+
+    return {
+        "combination_name": _SERVICEABILITY_COMBINATION,
+        "governing_node_id": governing_node_id,
+        "governing_node_x_m": round(_numeric(governing_node.get("x_m", 0.0)), 6),
+        "governing_node_y_m": round(_numeric(governing_node.get("y_m", 0.0)), 6),
+        "governing_node_z_m": round(_numeric(governing_node.get("z_m", 0.0)), 6),
+        "max_vertical_deflection_m": max_vertical_deflection_m,
+        "allowable_deflection_m": allowable_deflection_m,
+        "relevant_span_m": relevant_span_m,
+        "limit_divisor": limit_divisor,
+        "limit_label": inp.calculation_options.serviceability_limit_label(),
+        "eta_els": eta_els,
+    }
 
 
 def _select_platform_section_from_grillage(
@@ -1076,6 +1165,16 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 )
             )
 
+    serviceability_data = _serviceability_check_data(inp, global_frame_result)
+    if inp.calculation_options.include_serviceability:
+        citations.append(
+            CitationItem(
+                standard_id="EN1990",
+                clause="A1.4",
+                description="Verificação de flecha vertical em combinação característica de serviceability.",
+            )
+        )
+
     breakdown: list[CheckResult] = []
 
     def _msg(severity: str, key: str) -> DiagnosticMessage:
@@ -1202,12 +1301,55 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         CheckResult(
             id=ModuleId.SERVICEABILITY,
             label_key="calculation.modules.serviceability",
-            status=CheckStatus.NOT_CHECKED,
-            messages=[
-                _msg("warning", "warning.serviceability.notImplemented")
-                if opts.include_serviceability
-                else _msg("warning", "warning.module.disabled")
-            ],
+            eta=(
+                round(_numeric(serviceability_data["eta_els"]), 4)
+                if serviceability_data is not None
+                else None
+            ),
+            status=(
+                classify_eta(_numeric(serviceability_data["eta_els"]))
+                if serviceability_data is not None
+                else CheckStatus.NOT_CHECKED
+            ),
+            clause_refs=["EN 1990 A1.4"] if opts.include_serviceability else [],
+            messages=(
+                [_msg("warning", "warning.module.disabled")]
+                if not opts.include_serviceability
+                else [_msg("warning", "warning.serviceability.notVerified")]
+                if serviceability_data is None
+                else [_msg("critical", "warning.serviceability.exceeded")]
+                if classify_eta(_numeric(serviceability_data["eta_els"])) == CheckStatus.FAIL
+                else [_msg("warning", "warning.serviceability.atLimit")]
+                if classify_eta(_numeric(serviceability_data["eta_els"])) == CheckStatus.MARGINAL
+                else [_msg("info", "warning.serviceability.checked")]
+            ),
+            inputs=(
+                {
+                    "combination": str(serviceability_data["combination_name"]),
+                    "limit_label": str(serviceability_data["limit_label"]),
+                    "governing_node_id": str(serviceability_data["governing_node_id"]),
+                }
+                if serviceability_data is not None
+                else {}
+            ),
+            intermediate_values=(
+                {
+                    "max_vertical_deflection_m": _numeric(
+                        serviceability_data["max_vertical_deflection_m"]
+                    ),
+                    "allowable_deflection_m": _numeric(
+                        serviceability_data["allowable_deflection_m"]
+                    ),
+                    "relevant_span_m": _numeric(serviceability_data["relevant_span_m"]),
+                    "limit_divisor": _numeric(serviceability_data["limit_divisor"]),
+                    "eta_els": _numeric(serviceability_data["eta_els"]),
+                    "governing_node_x_m": _numeric(serviceability_data["governing_node_x_m"]),
+                    "governing_node_y_m": _numeric(serviceability_data["governing_node_y_m"]),
+                    "governing_node_z_m": _numeric(serviceability_data["governing_node_z_m"]),
+                }
+                if serviceability_data is not None
+                else {}
+            ),
         )
     )
 
@@ -1380,7 +1522,11 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 if inp.has_platform_grillage
                 else "O modelo estrutural depende da idealização global indicada no memorial."
             ),
-            "Os resultados de serviceability permanecem não verificados enquanto não existir cálculo de deslocamentos.",
+            (
+                "A verificação de serviceability usa a flecha vertical máxima da combinação SLS característica e o limite configurado pelo utilizador."
+                if serviceability_data is not None
+                else "Os resultados de serviceability permanecem não verificados quando não existirem deslocamentos do solver para a combinação SLS."
+            ),
             "As verificações de ligação só podem ser tratadas como verificadas quando existirem reações do solver e inputs explícitos de ligação; caso contrário permanecem não verificadas.",
             "Dimensionamento de fundações / maciços de betão fora do âmbito.",
             "Ligações soldadas verificadas por tensão nominal - sem análise de raiz.",

@@ -99,13 +99,13 @@ def test_section_verification_uses_orientation_in_bending_checks():
     assert weak.utilization_by_check["bending_y"] > strong.utilization_by_check["bending_y"]
 
 
-def test_serviceability_is_not_verified_when_deflection_is_unavailable():
+def test_serviceability_uses_solver_deflection_when_available():
     ctx = run_full_calculation(
         _inp(calculation_options=CalculationOptions(include_serviceability=True))
     )
 
     serviceability = ctx.engineering_report_state.state_for("serviceability")
-    assert serviceability.state == CalculationResultState.NOT_VERIFIED
+    assert serviceability.state == CalculationResultState.VERIFIED
 
 
 def test_connection_checks_placeholder_is_not_verified():

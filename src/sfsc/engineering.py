@@ -7,8 +7,16 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from .catalogs.steel_grade_catalog import get_grade_spec
+from .checks import CheckResult
 from .engines.load_surfaces import build_load_path_summary
-from .enums import LoadCaseName, SupportFixationMedium, SupportType, WalkingSurfaceType
+from .enums import (
+    CheckStatus,
+    LoadCaseName,
+    ModuleId,
+    SupportFixationMedium,
+    SupportType,
+    WalkingSurfaceType,
+)
 from .models import (
     FanSupportInput,
     FanSupportResult,
@@ -250,12 +258,19 @@ def determine_serviceability_state(
     *,
     include_serviceability: bool,
     displacement_results_available: bool,
+    serviceability_check_status: CheckStatus | None = None,
 ) -> CalculationResultState:
     if not include_serviceability:
         return CalculationResultState.NOT_APPLICABLE
-    if displacement_results_available:
-        return CalculationResultState.VERIFIED
-    return CalculationResultState.NOT_VERIFIED
+    if not displacement_results_available:
+        return CalculationResultState.NOT_VERIFIED
+    if serviceability_check_status == CheckStatus.FAIL:
+        return CalculationResultState.FAILED
+    if serviceability_check_status == CheckStatus.MARGINAL:
+        return CalculationResultState.REQUIRES_ENGINEER_REVIEW
+    if serviceability_check_status == CheckStatus.NOT_CHECKED:
+        return CalculationResultState.NOT_VERIFIED
+    return CalculationResultState.VERIFIED
 
 
 def determine_connection_state(
@@ -375,6 +390,13 @@ def _load_case_id(case_name: str) -> str:
 def _as_float(value: object) -> float:
     assert isinstance(value, int | float)
     return float(value)
+
+
+def _serviceability_module_check(result: FanSupportResult) -> CheckResult | None:
+    return next(
+        (check for check in result.module_breakdown if check.id == ModuleId.SERVICEABILITY),
+        None,
+    )
 
 
 def _build_material(inp: FanSupportInput) -> EngineeringMaterial:
@@ -926,9 +948,13 @@ def build_phase01_engineering_model(
             and result.section_verification.status.value == "FAIL"
         ),
     )
+    serviceability_check = _serviceability_module_check(result)
     serviceability_state = determine_serviceability_state(
         include_serviceability=inp.calculation_options.include_serviceability,
-        displacement_results_available=False,
+        displacement_results_available=bool(result.solver_displacements),
+        serviceability_check_status=(
+            serviceability_check.status if serviceability_check is not None else None
+        ),
     )
     connection_checks_requested = (
         inp.calculation_options.include_base_plate
@@ -1029,9 +1055,19 @@ def build_phase01_engineering_model(
             label_key="engineering.item.serviceability",
             state=serviceability_state,
             notes=(
-                ["Deflection verification requires displacement results from the future solver."]
-                if serviceability_state == CalculationResultState.NOT_VERIFIED
-                else []
+                []
+                if serviceability_state == CalculationResultState.NOT_APPLICABLE
+                else [
+                    "Vertical deflection was checked against the configured serviceability limit."
+                ]
+                if serviceability_state == CalculationResultState.VERIFIED
+                else ["Vertical deflection is close to the configured serviceability limit."]
+                if serviceability_state == CalculationResultState.REQUIRES_ENGINEER_REVIEW
+                else ["Vertical deflection exceeds the configured serviceability limit."]
+                if serviceability_state == CalculationResultState.FAILED
+                else [
+                    "Deflection verification could not be completed because no SLS displacement result is available."
+                ]
             ),
         ),
         EngineeringStateItem(
@@ -1108,8 +1144,12 @@ def build_phase01_engineering_model(
         analysis_settings=EngineeringAnalysisSettings(
             include_self_weight=True,
             solver_type=calculation_model.value,
-            serviceability_limit=None,
-            serviceability_custom_limit=None,
+            serviceability_limit=inp.calculation_options.serviceability_limit_label(),
+            serviceability_custom_limit=(
+                str(inp.calculation_options.serviceability_custom_limit_divisor)
+                if inp.calculation_options.serviceability_custom_limit_divisor is not None
+                else None
+            ),
         ),
         solver_results=_build_solver_results(result, solver_state),
         member_checks=_build_member_checks(result, member_check_state),

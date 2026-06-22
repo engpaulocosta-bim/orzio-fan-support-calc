@@ -1,6 +1,7 @@
 """Phase 07: PDF reporting, i18n coverage and engineering transparency tests.
 
 Acceptance criteria:
+- serviceability reflects the real deflection check when solver displacements exist
 - serviceability is not_verified when deflection is unavailable
 - connection checks are not_verified when not implemented
 - PDF/report model does not mark missing checks as verified
@@ -25,6 +26,7 @@ from sfsc.engineering import (
 )
 from sfsc.engines.selector import run_full_calculation
 from sfsc.enums import (
+    CheckStatus,
     Country,
     FanType,
     SupportType,
@@ -82,7 +84,23 @@ _PHASE07_REQUIRED_KEYS = [
     "report.section.engineeringWarnings",
     "report.label.serviceabilityStatus",
     "report.label.serviceabilityNotVerified",
+    "report.label.serviceabilityDisabled",
+    "report.label.serviceabilityChecked",
+    "report.label.serviceabilityAtLimit",
+    "report.label.serviceabilityExceeded",
     "report.label.deflectionNotAvailable",
+    "report.label.maxVerticalDeflection",
+    "report.label.deflectionLimit",
+    "report.label.relevantSpan",
+    "report.label.serviceabilityEta",
+    "sidebar.modules.serviceabilityLimit",
+    "sidebar.modules.serviceabilityLimitHelp",
+    "sidebar.modules.serviceabilityLimit.l200",
+    "sidebar.modules.serviceabilityLimit.l250",
+    "sidebar.modules.serviceabilityLimit.l360",
+    "sidebar.modules.serviceabilityLimit.custom",
+    "sidebar.modules.serviceabilityCustomLimit",
+    "sidebar.modules.serviceabilityCustomLimitHelp",
     "report.label.basePlateStatus",
     "report.label.anchorStatus",
     "report.label.weldStatus",
@@ -91,6 +109,9 @@ _PHASE07_REQUIRED_KEYS = [
     "report.label.simplifiedModelWarning",
     "report.label.engineerReviewRequired",
     "report.label.tramexNotBasePlate",
+    "warning.serviceability.checked",
+    "warning.serviceability.atLimit",
+    "warning.serviceability.exceeded",
     "warning.serviceability.notVerified",
     "warning.connection.notVerified",
     "warning.connection.basePlateNotVerified",
@@ -177,8 +198,23 @@ def test_serviceability_cannot_be_verified_without_displacement():
     assert state_with == CalculationResultState.VERIFIED
 
 
-def test_serviceability_in_engineering_model_is_not_verified():
-    """Phase 07: engineering model must report serviceability as NOT_VERIFIED when no deflection."""
+def test_serviceability_maps_marginal_and_fail_states():
+    marginal = determine_serviceability_state(
+        include_serviceability=True,
+        displacement_results_available=True,
+        serviceability_check_status=CheckStatus.MARGINAL,
+    )
+    failed = determine_serviceability_state(
+        include_serviceability=True,
+        displacement_results_available=True,
+        serviceability_check_status=CheckStatus.FAIL,
+    )
+    assert marginal == CalculationResultState.REQUIRES_ENGINEER_REVIEW
+    assert failed == CalculationResultState.FAILED
+
+
+def test_serviceability_in_engineering_model_is_verified_with_solver_displacements():
+    """Serviceability becomes VERIFIED when the solver provides displacement results."""
     inp = _make_inp(
         calculation_options=CalculationOptions(
             include_serviceability=True,
@@ -190,8 +226,8 @@ def test_serviceability_in_engineering_model_is_not_verified():
     result, _ctx = _run(inp)
     _, report_state = build_phase01_engineering_model(inp, result)
     sls_item = next(item for item in report_state.states if item.id == "serviceability")
-    assert sls_item.state == CalculationResultState.NOT_VERIFIED, (
-        f"Expected NOT_VERIFIED but got {sls_item.state.value}"
+    assert sls_item.state == CalculationResultState.VERIFIED, (
+        f"Expected VERIFIED but got {sls_item.state.value}"
     )
 
 
@@ -205,6 +241,15 @@ def test_serviceability_in_engineering_model_is_not_applicable_when_disabled():
     _, report_state = build_phase01_engineering_model(inp, result)
     sls_item = next(item for item in report_state.states if item.id == "serviceability")
     assert sls_item.state == CalculationResultState.NOT_APPLICABLE
+
+
+def test_serviceability_in_engineering_model_is_not_verified_without_displacements():
+    inp = _make_inp(calculation_options=CalculationOptions(include_serviceability=True))
+    result, _ctx = _run(inp)
+    result = result.model_copy(update={"solver_displacements": []})
+    _, report_state = build_phase01_engineering_model(inp, result)
+    sls_item = next(item for item in report_state.states if item.id == "serviceability")
+    assert sls_item.state == CalculationResultState.NOT_VERIFIED
 
 
 # ── connection not_verified tests ─────────────────────────────────────────────
@@ -330,27 +375,28 @@ def test_engineering_report_state_global_frame_for_pedestal():
     assert calc_item.state == CalculationResultState.VERIFIED
 
 
-def test_engineering_report_state_unverified_flag_when_serviceability_enabled():
-    """When serviceability is enabled but not calculated, report must flag unverified."""
+def test_engineering_report_state_unverified_flag_when_displacements_are_removed():
+    """When serviceability displacements are removed, the report must flag the missing verification."""
     inp = _make_inp(
         calculation_options=CalculationOptions(
             include_serviceability=True,
         )
     )
     result, _ctx = _run(inp)
+    result = result.model_copy(update={"solver_displacements": []})
     _, report_state = build_phase01_engineering_model(inp, result)
     assert report_state.contains_unverified_checks is True, (
         "Report must flag unverified checks when serviceability is enabled but not calculated"
     )
 
 
-def test_engineering_model_never_presents_serviceability_as_verified():
-    """Serviceability must never be VERIFIED without actual displacement calculation."""
+def test_engineering_model_presents_serviceability_as_verified_with_displacements():
+    """Serviceability may be VERIFIED only when actual displacement results exist."""
     inp = _make_inp(calculation_options=CalculationOptions(include_serviceability=True))
     result, _ctx = _run(inp)
     _, report_state = build_phase01_engineering_model(inp, result)
     sls_item = next(item for item in report_state.states if item.id == "serviceability")
-    assert sls_item.state != CalculationResultState.VERIFIED
+    assert sls_item.state == CalculationResultState.VERIFIED
 
 
 # ── warning messages for simplified / not verified items ─────────────────────
@@ -465,8 +511,8 @@ def test_pdf_generate_does_not_raise_for_simplified_model():
     assert len(pdf_bytes) > 1000, "PDF must have meaningful content"
 
 
-def test_pdf_generate_does_not_overstate_serviceability():
-    """PDF generation must not claim serviceability is verified when not calculated."""
+def test_pdf_generate_reflects_verified_serviceability_when_calculated():
+    """PDF generation must reflect the real serviceability state from the solver."""
     try:
         import reportlab  # noqa: F401
     except ImportError:
@@ -480,7 +526,7 @@ def test_pdf_generate_does_not_overstate_serviceability():
     result, _base_ctx = _run(inp)
     _, report_state = build_phase01_engineering_model(inp, result)
     sls_item = next(item for item in report_state.states if item.id == "serviceability")
-    assert sls_item.state == CalculationResultState.NOT_VERIFIED
+    assert sls_item.state == CalculationResultState.VERIFIED
 
     ctx = ReportContext(
         project_name="Phase 07 SLS Test",
@@ -494,5 +540,4 @@ def test_pdf_generate_does_not_overstate_serviceability():
     )
     pdf_bytes = generate_pdf(ctx)
     assert pdf_bytes, "PDF must not be empty"
-    # The engineering state item must remain NOT_VERIFIED (not promoted to VERIFIED)
-    assert sls_item.state != CalculationResultState.VERIFIED
+    assert sls_item.state == CalculationResultState.VERIFIED
