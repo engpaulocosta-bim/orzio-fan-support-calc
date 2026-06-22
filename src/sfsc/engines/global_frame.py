@@ -16,8 +16,10 @@ from .grillage import (
     GrillageNode,
     GrillagePointLoad,
     GrillageSupport,
+    build_grillage_stiffness,
     run_grillage_analysis,
 )
+from .modal_analysis import ModalAnalysisResult, run_modal_analysis
 
 _SINGULAR_TOLERANCE = 1e12
 
@@ -685,6 +687,55 @@ def _run_platform_grillage_analysis(
         reactions=reactions,
         displacements=displacements,
         member_end_forces=member_end_forces,
+    )
+
+
+def run_platform_modal_analysis(
+    inp: FanSupportInput,
+    section: SteelSection,
+    orientation_deg: float,
+    excitation_frequencies_hz: list[float],
+) -> ModalAnalysisResult:
+    """Compute the first natural frequency of the platform grillage and check resonance.
+
+    Only applicable when ``inp.has_platform_grillage`` is True. Falls back to a
+    failed result for other support types.
+    """
+
+    nodes, members, supports, loaded_node_ids = _platform_grillage_geometry(
+        inp, section, orientation_deg
+    )
+
+    stiffness_result = build_grillage_stiffness(nodes, members, supports)
+    if stiffness_result is None:
+        return ModalAnalysisResult(
+            solved=False,
+            failed=True,
+            failure_reason="modal_stiffness_assembly_failed",
+            first_frequency_hz=None,
+            excitation_frequencies_hz=excitation_frequencies_hz,
+            frequency_ratios=[],
+            resonance_violated=False,
+            violated_excitation_hz=None,
+            warnings=["Falha na montagem da matriz de rigidez para análise modal."],
+            intermediate={},
+        )
+
+    k_ff, free_dofs = stiffness_result
+    section_area_m2 = section.A_cm2 * 1e-4
+    equipment_mass_kg = sum(unit.operating_weight_kg for unit in inp.fan_units)
+
+    return run_modal_analysis(
+        nodes=nodes,
+        members=members,
+        supports=supports,
+        loaded_node_ids=loaded_node_ids,
+        stiffness_ff=k_ff,
+        free_dofs=free_dofs,
+        steel_density_kg_m3=7850.0,
+        section_area_m2=section_area_m2,
+        equipment_mass_kg=equipment_mass_kg,
+        excitation_frequencies_hz=excitation_frequencies_hz,
     )
 
 

@@ -59,6 +59,12 @@ class CalculationOptions(BaseModel):
     include_serviceability: bool = False
     serviceability_limit: ServiceabilityLimit = ServiceabilityLimit.L_250
     serviceability_custom_limit_divisor: float | None = Field(default=None, gt=0.0)
+    include_modal_frequency: bool = False
+    excitation_frequency_hz: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Frequência de excitação do ventilador [Hz]. None = derivar de speed_rpm.",
+    )
 
     @model_validator(mode="after")
     def _validate_serviceability_limit(self) -> CalculationOptions:

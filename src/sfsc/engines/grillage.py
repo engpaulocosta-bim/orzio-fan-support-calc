@@ -142,6 +142,70 @@ def _failure(
     )
 
 
+def build_grillage_stiffness(
+    nodes: list[GrillageNode],
+    members: list[GrillageMember],
+    supports: list[GrillageSupport],
+) -> tuple[np.ndarray, list[int]] | None:
+    """Assemble the condensed free-DOF stiffness sub-matrix K_ff and the free DOF list.
+
+    Returns ``None`` if the input is inconsistent (unknown node refs). Intended for
+    use by the modal analysis engine, which needs K_ff without solving K·u=F.
+    """
+
+    if not nodes or not members:
+        return None
+
+    node_index = {node.id: i for i, node in enumerate(nodes)}
+    if len(node_index) != len(nodes):
+        return None
+
+    dof_count = len(nodes) * 3
+    stiffness = np.zeros((dof_count, dof_count), dtype=float)
+
+    for member in members:
+        if member.node_i not in node_index or member.node_j not in node_index:
+            return None
+        node_i = nodes[node_index[member.node_i]]
+        node_j = nodes[node_index[member.node_j]]
+        dx_m = node_j.x_m - node_i.x_m
+        dy_m = node_j.y_m - node_i.y_m
+        length_m = float(np.hypot(dx_m, dy_m))
+        if length_m <= 0.0:
+            return None
+        transform = _transformation(dx_m, dy_m, length_m)
+        local_stiffness = _local_stiffness(member, length_m)
+        global_stiffness = transform.T @ local_stiffness @ transform
+        dofs = [
+            node_index[member.node_i] * 3,
+            node_index[member.node_i] * 3 + 1,
+            node_index[member.node_i] * 3 + 2,
+            node_index[member.node_j] * 3,
+            node_index[member.node_j] * 3 + 1,
+            node_index[member.node_j] * 3 + 2,
+        ]
+        stiffness[np.ix_(dofs, dofs)] += global_stiffness
+
+    restrained: set[int] = set()
+    for support in supports:
+        if support.node_id not in node_index:
+            return None
+        base = node_index[support.node_id] * 3
+        if support.w:
+            restrained.add(base)
+        if support.rx:
+            restrained.add(base + 1)
+        if support.ry:
+            restrained.add(base + 2)
+
+    free = [dof for dof in range(dof_count) if dof not in restrained]
+    if not free:
+        return None
+
+    k_ff = stiffness[np.ix_(free, free)]
+    return k_ff, free
+
+
 def run_grillage_analysis(
     nodes: list[GrillageNode],
     members: list[GrillageMember],

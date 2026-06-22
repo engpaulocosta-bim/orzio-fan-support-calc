@@ -359,6 +359,21 @@ def determine_import_review_state(
     return CalculationResultState.VERIFIED
 
 
+def determine_modal_state(
+    *,
+    include_modal: bool,
+    modal_solved: bool,
+    resonance_violated: bool,
+) -> CalculationResultState:
+    if not include_modal:
+        return CalculationResultState.NOT_APPLICABLE
+    if not modal_solved:
+        return CalculationResultState.NOT_VERIFIED
+    if resonance_violated:
+        return CalculationResultState.FAILED
+    return CalculationResultState.VERIFIED
+
+
 def _calculation_model_for_result(result: FanSupportResult) -> CalculationModelType:
     if result.solver_engine == "global_frame" and not result.solver_failed:
         return CalculationModelType.GLOBAL_FRAME

@@ -199,6 +199,7 @@ class ModuleId(str, Enum):
     SEISMIC_EQUIVALENT_STATIC = "seismic_equivalent_static"
     SERVICEABILITY = "serviceability"
     LOAD_DISTRIBUTION_SURFACE = "load_distribution_surface"
+    MODAL_FREQUENCY = "modal_frequency"
 
 
 class ServiceabilityLimit(str, Enum):
