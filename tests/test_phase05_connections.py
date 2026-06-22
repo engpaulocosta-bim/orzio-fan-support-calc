@@ -93,7 +93,10 @@ def test_phase05_concrete_connection_uses_solver_reactions_when_inputs_exist():
     assert base_plate["governing_combination"] == "ULS_fundamental"
     assert base_plate["reaction_fz_kN"] > 0.0
     assert base_plate["reaction_my_kNm"] > 0.0
-    assert all(check.status == CalculationResultState.VERIFIED for check in ctx.engineering_model.connection_checks)
+    assert all(
+        check.status == CalculationResultState.VERIFIED
+        for check in ctx.engineering_model.connection_checks
+    )
 
 
 def test_phase05_steel_fixation_can_be_verified_from_solver_reactions():

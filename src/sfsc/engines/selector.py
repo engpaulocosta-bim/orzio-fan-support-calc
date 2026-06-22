@@ -7,7 +7,7 @@ import logging
 import math
 
 from ..catalogs.seismic_catalog import get_seismic_code, get_seismic_factor
-from ..catalogs.steel_section_catalog import get_section
+from ..catalogs.steel_section_catalog import get_section, list_sections
 from ..checks import CheckResult, DiagnosticMessage, aggregate_results, classify_eta
 from ..config import get_dataset_provenance
 from ..engineering import build_phase01_engineering_model
@@ -43,13 +43,14 @@ from .anchor import calculate_anchor
 from .base_plate import calculate_base_plate
 from .checker import classify, run_checker
 from .connection_verifier import build_phase05_connection_rows
-from .global_frame import run_global_frame_analysis
+from .global_frame import GlobalFrameAnalysisResult, run_global_frame_analysis
 from .ifc_import import build_import_review
-from .load_surfaces import build_load_path_summary
+from .load_surfaces import build_load_path_summary, effective_distribution_method
 from .loads import calculate_loads
 from .metal_connections import calculate_metal_connection
 from .quantities import calculate_quantities
 from .section_verifier import (
+    MAX_UTILIZATION,
     auto_select_section,
     find_passing_sections,
     verify_section,
@@ -90,6 +91,12 @@ _SUPPORT_ENGINES = {
     SupportType.COMBINED: calc_combined,
     SupportType.PLATFORM_FRAME_BRACED: calc_platform_frame_braced,
 }
+
+
+def _numeric(value: object) -> float:
+    if isinstance(value, int | float):
+        return float(value)
+    raise TypeError(f"Expected numeric solver value, got {type(value).__name__}.")
 
 
 def _legacy_to_check_status(legacy, eta: float) -> CheckStatus:
@@ -158,12 +165,112 @@ def _platform_support_steel_weight_kg(inp: FanSupportInput, section: SteelSectio
     n_beams = max(2, inp.platform_n_beams)
     beam_length_m = inp.platform_length_eff_mm / 1_000.0
     steel_kg = section.weight_kgm * n_beams * beam_length_m
+    if inp.has_platform_grillage:
+        crossbeam_length_m = inp.platform_width_eff_mm / 1_000.0
+        steel_kg += section.weight_kgm * inp.platform_n_crossbeams * crossbeam_length_m
     if inp.cantilever_subtype is None or inp.cantilever_subtype.value == "bracketed":
         diagonal_length_m = (
             math.hypot(inp.platform_length_eff_mm, inp.installation_height_mm) / 1_000.0
         )
         steel_kg += section.weight_kgm * n_beams * diagonal_length_m
     return steel_kg
+
+
+def _select_platform_section_from_grillage(
+    inp: FanSupportInput,
+    combinations: list[LoadCombination],
+    struct_code: StructuralCode,
+    orientation_deg: float,
+    include_ltb: bool,
+) -> (
+    tuple[
+        SteelSection,
+        SectionVerificationResult,
+        list[SectionVerificationResult],
+        GlobalFrameAnalysisResult,
+        list[dict[str, object]],
+    ]
+    | None
+):
+    """Select the first catalog section that passes using its own grillage forces."""
+
+    passing_options: list[SectionVerificationResult] = []
+    for family in inp.preferred_section_families:
+        for candidate in list_sections(family):
+            analysis = run_global_frame_analysis(
+                inp,
+                combinations,
+                candidate,
+                orientation_deg,
+            )
+            if not analysis.solved or analysis.failed:
+                continue
+            buckling_overrides_mm = {
+                str(member["id"]): (
+                    inp.platform_length_eff_mm,
+                    inp.platform_length_eff_mm,
+                )
+                for member in analysis.members
+            }
+            result, member_rows = verify_solver_member_envelope(
+                candidate,
+                analysis.nodes,
+                analysis.members,
+                analysis.member_end_forces,
+                struct_code,
+                inp.steel_grade,
+                orientation_deg,
+                buckling_length_overrides_mm=buckling_overrides_mm,
+                include_ltb=include_ltb,
+            )
+            if result.utilization_ratio <= MAX_UTILIZATION:
+                passing_options.append(result)
+                return candidate, result, passing_options, analysis, member_rows
+    return None
+
+
+def _member_combinations_from_grillage(
+    analysis: GlobalFrameAnalysisResult,
+    action_combinations: list[LoadCombination],
+) -> list[LoadCombination]:
+    """Collapse per-member grillage results into a traceable envelope per combination."""
+
+    action_by_name = {combination.name: combination for combination in action_combinations}
+    envelopes: list[LoadCombination] = []
+    for combination_name in action_by_name:
+        rows = [
+            row for row in analysis.member_end_forces if str(row["combination"]) == combination_name
+        ]
+        if not rows:
+            continue
+        source = action_by_name[combination_name]
+        envelopes.append(
+            LoadCombination(
+                name=combination_name,
+                N_kN=0.0,
+                V_z_kN=max(
+                    max(abs(_numeric(row["V_i_kN"])), abs(_numeric(row["V_j_kN"]))) for row in rows
+                ),
+                M_y_kNm=max(
+                    max(abs(_numeric(row["M_i_kNm"])), abs(_numeric(row["M_j_kNm"])))
+                    for row in rows
+                ),
+                T_kNm=max(
+                    max(
+                        abs(_numeric(row.get("T_i_kNm", 0.0))),
+                        abs(_numeric(row.get("T_j_kNm", 0.0))),
+                    )
+                    for row in rows
+                ),
+                member_level=True,
+                load_factors_used={
+                    **source.load_factors_used,
+                    "solver_member_count": float(len(rows)),
+                },
+                description="Envelope of member forces recovered from the 2.5D grillage solver.",
+            )
+        )
+    return envelopes
 
 
 def _verify_platform_diagonal(
@@ -577,6 +684,81 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             section,
             orientation_deg,
         )
+        if (
+            inp.support_type == SupportType.PLATFORM_FRAME_BRACED
+            and inp.has_platform_grillage
+            and inp.operation_mode == OperationMode.DIMENSION
+        ):
+            grillage_selection = None
+            previous_signature: tuple[str, str, float] | None = None
+            for _ in range(4):
+                grillage_selection = _select_platform_section_from_grillage(
+                    inp,
+                    action_combos,
+                    struct_code,
+                    orientation_deg,
+                    eff_ltb,
+                )
+                if grillage_selection is None:
+                    break
+                selected_section = grillage_selection[0]
+                selected_steel_weight_kg = _platform_support_steel_weight_kg(
+                    inp,
+                    selected_section,
+                )
+                new_total_weight_kN, new_action_combos = calculate_loads(
+                    loads_inp,
+                    struct_code,
+                    ag_g_eff,
+                    support_steel_weight_kg=selected_steel_weight_kg,
+                )
+                new_design_load_kN = max(
+                    abs(combination.V_z_kN) for combination in _uls_action_combos(new_action_combos)
+                )
+                signature = (
+                    selected_section.family.value,
+                    selected_section.designation,
+                    round(new_design_load_kN, 6),
+                )
+                total_weight_kN = new_total_weight_kN
+                action_combos = new_action_combos
+                uls_actions = _uls_action_combos(action_combos)
+                design_load_kN = new_design_load_kN
+                if signature == previous_signature:
+                    break
+                previous_signature = signature
+
+            if grillage_selection is not None:
+                final_selection = _select_platform_section_from_grillage(
+                    inp,
+                    action_combos,
+                    struct_code,
+                    orientation_deg,
+                    eff_ltb,
+                )
+                if final_selection is not None:
+                    grillage_selection = final_selection
+            if grillage_selection is not None:
+                (
+                    section,
+                    sec_result,
+                    section_options,
+                    global_frame_result,
+                    member_check_rows,
+                ) = grillage_selection
+            else:
+                recovered_statuses.append(CheckerStatus.OUT_OF_SCOPE)
+                warn_items.append(
+                    WarningItem(
+                        code="W-GRID-SECTION",
+                        severity="CRITICAL",
+                        message=(
+                            "No catalog section passes the platform grillage force envelope. "
+                            "Review geometry, steel grade, or selected section families."
+                        ),
+                        module="grillage",
+                    )
+                )
         for warning in global_frame_result.warnings:
             warn_items.append(
                 WarningItem(
@@ -586,7 +768,11 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                     module="global_frame",
                 )
             )
-        if global_frame_result.supported and global_frame_result.solved and not global_frame_result.failed:
+        if (
+            global_frame_result.supported
+            and global_frame_result.solved
+            and not global_frame_result.failed
+        ):
             try:
                 _all_member_ids = {str(m["id"]) for m in global_frame_result.members}
                 buckling_overrides_mm = {mid: (Lcr_y_mm, Lcr_z_mm) for mid in _all_member_ids}
@@ -623,6 +809,13 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                         module="section_verifier",
                     )
                 )
+            if inp.has_platform_grillage:
+                grillage_member_combos = _member_combinations_from_grillage(
+                    global_frame_result,
+                    action_combos,
+                )
+                if grillage_member_combos:
+                    member_combos = grillage_member_combos
         connection_check_rows = build_phase05_connection_rows(
             inp,
             solver_engine="global_frame",
@@ -634,9 +827,7 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             status = str(row.get("status", ""))
             missing_value = row.get("missing_inputs", [])
             missing = (
-                [str(item) for item in missing_value]
-                if isinstance(missing_value, list)
-                else []
+                [str(item) for item in missing_value] if isinstance(missing_value, list) else []
             )
             if status == "not_verified":
                 warn_items.append(
@@ -692,6 +883,24 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
 
     if inp.support_type == SupportType.PLATFORM_FRAME_BRACED and section is not None:
         platform_breakdown = compute_platform_breakdown(inp, action_combos)
+        platform_load_per_beam_kN = platform_breakdown.load_per_beam_kN
+        platform_moment_per_beam_kNm = platform_breakdown.moment_per_beam_kNm
+        platform_axial_per_beam_kN = platform_breakdown.axial_per_beam_kN
+        if (
+            inp.has_platform_grillage
+            and global_frame_result is not None
+            and global_frame_result.solved
+            and not global_frame_result.failed
+        ):
+            platform_load_per_beam_kN = max(
+                max(abs(_numeric(row["V_i_kN"])), abs(_numeric(row["V_j_kN"])))
+                for row in global_frame_result.member_end_forces
+            )
+            platform_moment_per_beam_kNm = max(
+                max(abs(_numeric(row["M_i_kNm"])), abs(_numeric(row["M_j_kNm"])))
+                for row in global_frame_result.member_end_forces
+            )
+            platform_axial_per_beam_kN = 0.0
         diagonal_result = _verify_platform_diagonal(
             inp,
             section,
@@ -702,6 +911,10 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         steel_weight_kg = _platform_support_steel_weight_kg(inp, section)
         platform_result = PlatformResult(
             n_beams=platform_breakdown.n_beams,
+            n_crossbeams=inp.platform_n_crossbeams,
+            analysis_model=(
+                "grillage_2_5d" if inp.has_platform_grillage else "legacy_parallel_beams"
+            ),
             braced=platform_breakdown.braced,
             width_mm=round(inp.platform_width_eff_mm, 1),
             length_mm=round(inp.platform_length_eff_mm, 1),
@@ -709,10 +922,10 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             surface_weight_kn_m2=inp.walking_surface.self_weight_kn_m2,
             surface_weight_kg=round(inp.platform_surface_weight_kg, 1),
             steel_weight_kg=round(steel_weight_kg, 1),
-            load_per_beam_kN=platform_breakdown.load_per_beam_kN,
-            moment_per_beam_kNm=platform_breakdown.moment_per_beam_kNm,
-            axial_per_beam_kN=platform_breakdown.axial_per_beam_kN,
-            load_distribution_method=inp.walking_surface.distribution_method.value,
+            load_per_beam_kN=round(platform_load_per_beam_kN, 4),
+            moment_per_beam_kNm=round(platform_moment_per_beam_kNm, 4),
+            axial_per_beam_kN=round(platform_axial_per_beam_kN, 4),
+            load_distribution_method=effective_distribution_method(inp).value,
             load_surface_components=load_path_summary.surface_components,
             distributed_line_loads=load_path_summary.distributed_line_loads,
             manual_loads_applied=load_path_summary.manual_loads_applied,
@@ -726,6 +939,17 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 description="Peso próprio da superfície e da estrutura da plataforma",
             )
         )
+        if inp.has_platform_grillage:
+            citations.append(
+                CitationItem(
+                    standard_id="EN1993-1-1",
+                    clause="cl. 5.2",
+                    description=(
+                        "Análise elástica global da grelha 2.5D com rigidez "
+                        "de flexão e torção das barras."
+                    ),
+                )
+            )
         if diagonal_result:
             for w in diagonal_result.warnings:
                 warn_items.append(
@@ -988,16 +1212,26 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
     )
 
     if inp.walking_surface.surface_type.value != "none" or inp.manual_loads:
+        effective_surface_method = effective_distribution_method(inp)
+        surface_distribution_verified = (
+            inp.has_platform_grillage
+            and effective_surface_method.value == "two_way"
+            and not load_path_summary.requires_engineer_review
+        )
         breakdown.append(
             CheckResult(
                 id=ModuleId.LOAD_DISTRIBUTION_SURFACE,
                 label_key="calculation.modules.loadDistributionSurface",
-                status=CheckStatus.MARGINAL
-                if load_path_summary.requires_engineer_review
-                else CheckStatus.INFORMATIVE,
+                status=(
+                    CheckStatus.MARGINAL
+                    if load_path_summary.requires_engineer_review
+                    else CheckStatus.OK
+                    if surface_distribution_verified
+                    else CheckStatus.INFORMATIVE
+                ),
                 inputs={
                     "surface_type": inp.walking_surface.surface_type.value,
-                    "distribution_method": inp.walking_surface.distribution_method.value,
+                    "distribution_method": effective_surface_method.value,
                     "manual_load_count": float(len(inp.manual_loads)),
                 },
                 messages=[
@@ -1006,6 +1240,8 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                         "warning" if load_path_summary.requires_engineer_review else "info",
                         "warning.surface.requiresEngineerReview"
                         if load_path_summary.requires_engineer_review
+                        else "warning.surface.twoWayDistribution"
+                        if surface_distribution_verified
                         else "warning.surface.simplifiedDistribution",
                     ),
                 ],
@@ -1116,6 +1352,17 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             "options_fingerprint": inp.calculation_options.fingerprint(),
             "calculation_mode": inp.calculation_mode.value,
             "calculation_model_type": engineering_model.structure.calculation_model.value,
+            "solver_module": (
+                "grillage_2_5d"
+                if inp.has_platform_grillage
+                and global_frame_result is not None
+                and global_frame_result.solved
+                else fan_result.solver_engine
+            ),
+            "platform_grid": {
+                "longitudinal_beams": inp.platform_n_beams,
+                "crossbeams": inp.platform_n_crossbeams,
+            },
             "import_source_type": (
                 import_review.source.source_type if import_review is not None else None
             ),
@@ -1127,7 +1374,12 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
         limitations=[
             "Análise dinâmica de vibrações fora do âmbito (A-VIB-001).",
             "Verificação de fadiga (EN 1993-1-9) fora do âmbito (A-FAT-001).",
-            "O modelo estrutural atual é simplificado e não corresponde a um global frame solver.",
+            (
+                "A plataforma foi analisada como grelha elástica linear 2.5D; "
+                "efeitos não lineares e ligações semirrígidas não foram modelados."
+                if inp.has_platform_grillage
+                else "O modelo estrutural depende da idealização global indicada no memorial."
+            ),
             "Os resultados de serviceability permanecem não verificados enquanto não existir cálculo de deslocamentos.",
             "As verificações de ligação só podem ser tratadas como verificadas quando existirem reações do solver e inputs explícitos de ligação; caso contrário permanecem não verificadas.",
             "Dimensionamento de fundações / maciços de betão fora do âmbito.",

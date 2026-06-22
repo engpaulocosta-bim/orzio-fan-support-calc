@@ -28,9 +28,7 @@ def resolve_section_orientation_deg(
     if orientation == SectionOrientation.WEAK_AXIS_VERTICAL:
         return 90.0
     if rotation_deg is None:
-        raise UnsupportedSectionOrientationError(
-            "custom_rotation requires section_rotation_deg."
-        )
+        raise UnsupportedSectionOrientationError("custom_rotation requires section_rotation_deg.")
     normalized = rotation_deg % 180.0
     if abs(normalized) <= _ORIENTATION_TOLERANCE_DEG:
         return 0.0

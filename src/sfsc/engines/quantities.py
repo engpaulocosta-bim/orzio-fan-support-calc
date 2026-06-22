@@ -47,6 +47,32 @@ def _primary_member_length_m(inp: FanSupportInput) -> tuple[float, list[dict[str
             items.append(
                 {"item": "combined_hanger_rods", "quantity": 4, "length_m": _round(rod_length_m)}
             )
+    elif inp.support_type == SupportType.PLATFORM_FRAME_BRACED:
+        length_m = mm_to_m(inp.platform_length_eff_mm)
+        width_m = mm_to_m(inp.platform_width_eff_mm)
+        items.append(
+            {
+                "item": "platform_longitudinal_beams",
+                "quantity": max(2, inp.platform_n_beams),
+                "length_m": _round(length_m),
+            }
+        )
+        if inp.has_platform_grillage:
+            items.append(
+                {
+                    "item": "platform_crossbeams",
+                    "quantity": inp.platform_n_crossbeams,
+                    "length_m": _round(width_m),
+                }
+            )
+        if inp.cantilever_subtype in (None, CantileverSubtype.BRACKETED):
+            items.append(
+                {
+                    "item": "platform_diagonal_braces",
+                    "quantity": max(2, inp.platform_n_beams),
+                    "length_m": _round(math.hypot(length_m, height_m)),
+                }
+            )
 
     total = 0.0
     for item in items:

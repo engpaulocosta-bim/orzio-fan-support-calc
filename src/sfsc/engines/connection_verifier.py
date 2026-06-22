@@ -37,11 +37,7 @@ def _status_for_ratio(ratio: float) -> str:
 
 
 def _solver_reaction_rows(solver_reactions: list[dict[str, object]]) -> list[dict[str, object]]:
-    return [
-        row
-        for row in solver_reactions
-        if str(row["combination"]).upper().startswith("ULS")
-    ]
+    return [row for row in solver_reactions if str(row["combination"]).upper().startswith("ULS")]
 
 
 def _governing_reaction_key(row: dict[str, object]) -> float:
@@ -184,7 +180,10 @@ def _check_base_plate(
         utilization=utilization,
         warnings=[],
         missing_inputs=[],
-        assumptions=["Explicit plate dimensions provided by user.", "Compression-dominant base plate check."],
+        assumptions=[
+            "Explicit plate dimensions provided by user.",
+            "Compression-dominant base plate check.",
+        ],
         code_clause="EN 1993-1-8 cl. 6.2.5 simplified",
     )
 
@@ -209,9 +208,7 @@ def _check_base_plate_transfer(
             governing_combination=str(reaction_row["combination"]),
             reaction_row=reaction_row,
             missing_inputs=missing_inputs,
-            warnings=[
-                "Reaction transfer must be defined by explicit weld size or bolt data."
-            ],
+            warnings=["Reaction transfer must be defined by explicit weld size or bolt data."],
         )
 
     shear_kN = abs(_as_float(reaction_row["reaction_fx_kN"]))
@@ -318,9 +315,7 @@ def _check_anchor_group(
             governing_combination=str(reaction_row["combination"]),
             reaction_row=reaction_row,
             missing_inputs=missing_inputs,
-            warnings=[
-                "Anchor verification needs explicit anchor layout and concrete grade."
-            ],
+            warnings=["Anchor verification needs explicit anchor layout and concrete grade."],
         )
 
     assert layout is not None
@@ -339,17 +334,19 @@ def _check_anchor_group(
         else 0.0
     )
     shear_per_anchor_kN = abs(_as_float(reaction_row["reaction_fx_kN"])) / layout.n_anchors
-    eta_tension = axial_tension_kN / tension_capacity_per_anchor if tension_capacity_per_anchor > 0 else 99.0
-    eta_shear = shear_per_anchor_kN / shear_capacity_per_anchor if shear_capacity_per_anchor > 0 else 99.0
+    eta_tension = (
+        axial_tension_kN / tension_capacity_per_anchor if tension_capacity_per_anchor > 0 else 99.0
+    )
+    eta_shear = (
+        shear_per_anchor_kN / shear_capacity_per_anchor if shear_capacity_per_anchor > 0 else 99.0
+    )
     eta_interaction = eta_tension**1.5 + eta_shear**1.5
 
     fck = _FCK.get(inp.concrete_grade, 0.0)
     hef_mm = max(8.0 * layout.anchor_diameter_mm, 100.0)
     fbd_mpa = 0.7 * 2.25 * (fck / 25.0) ** 0.5 if fck > 0 else 0.0
     pullout_capacity_kN = (
-        math.pi * layout.anchor_diameter_mm * hef_mm * fbd_mpa / 1000.0
-        if fbd_mpa > 0
-        else 0.0
+        math.pi * layout.anchor_diameter_mm * hef_mm * fbd_mpa / 1000.0 if fbd_mpa > 0 else 0.0
     )
     eta_pullout = axial_tension_kN / pullout_capacity_kN if pullout_capacity_kN > 0 else 99.0
 
@@ -364,7 +361,9 @@ def _check_anchor_group(
             spacing_factor,
             layout.spacing_y_mm / max(3.0 * hef_mm, 1.0),
         )
-    reduced_pullout_capacity_kN = pullout_capacity_kN * min(1.0, edge_factor) * min(1.0, spacing_factor)
+    reduced_pullout_capacity_kN = (
+        pullout_capacity_kN * min(1.0, edge_factor) * min(1.0, spacing_factor)
+    )
     eta_pullout = (
         axial_tension_kN / reduced_pullout_capacity_kN
         if reduced_pullout_capacity_kN > 0
@@ -426,7 +425,9 @@ def build_phase05_connection_rows(
                 missing_inputs.append("steel_fixation")
             else:
                 if steel_fix.bolt_diameter_mm is None and steel_fix.weld_size_mm is None:
-                    missing_inputs.append("steel_fixation.bolt_diameter_mm or steel_fixation.weld_size_mm")
+                    missing_inputs.append(
+                        "steel_fixation.bolt_diameter_mm or steel_fixation.weld_size_mm"
+                    )
                 if steel_fix.number_of_bolts is None and steel_fix.weld_size_mm is None:
                     missing_inputs.append("steel_fixation.number_of_bolts")
                 if steel_fix.plate_thickness_mm is None:
@@ -456,7 +457,9 @@ def build_phase05_connection_rows(
                     _base_row(
                         support_id=support_id,
                         check_type="steel_fixation",
-                        status="failed" if steel_result.status == CheckerStatus.FAIL else "verified",
+                        status="failed"
+                        if steel_result.status == CheckerStatus.FAIL
+                        else "verified",
                         governing_combination=str(reaction_row["combination"]),
                         reaction_row=reaction_row,
                         utilization=steel_result.utilization_ratio,

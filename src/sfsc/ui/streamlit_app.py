@@ -37,8 +37,8 @@ from sfsc.ui.components import (
     sidebar_context,
     sidebar_fan,
     sidebar_geometry,
-    sidebar_import,
     sidebar_identification,
+    sidebar_import,
     sidebar_modules,
     sidebar_support,
 )
@@ -76,7 +76,11 @@ def _collect_inputs() -> FanSupportInput:
     context = sidebar_context.render()
     imported = sidebar_import.render()
     geom = sidebar_geometry.render(support["support_type"])
-    modules = sidebar_modules.render(support["support_type"], geom["platform_n_beams"])
+    modules = sidebar_modules.render(
+        support["support_type"],
+        geom["platform_n_beams"],
+        geom["platform_n_crossbeams"],
+    )
 
     if imported["imported_model_error"]:
         raise ValidationError(imported["imported_model_error"], "imported_model")
@@ -115,6 +119,7 @@ def _collect_inputs() -> FanSupportInput:
         eccentricity_mm=geom["ecc_mm"],
         hanger_rod_length_mm=geom["hanger_rod_mm"],
         platform_n_beams=geom["platform_n_beams"],
+        platform_n_crossbeams=geom["platform_n_crossbeams"],
         platform_width_mm=geom["platform_width_mm"],
         platform_length_mm=geom["platform_length_mm"],
         anti_vibration=geom["anti_vib"],

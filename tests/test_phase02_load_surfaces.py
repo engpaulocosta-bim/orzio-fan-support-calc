@@ -59,8 +59,12 @@ def test_area_load_distribution_creates_traceable_line_loads():
     assert summary.vertical_totals_by_case["G"] == pytest.approx(2.0)
     assert summary.vertical_totals_by_case["Q"] == pytest.approx(4.0)
 
-    self_weight_lines = [item for item in summary.distributed_line_loads if item["source"] == "surface_self_weight"]
-    imposed_lines = [item for item in summary.distributed_line_loads if item["source"] == "surface_imposed"]
+    self_weight_lines = [
+        item for item in summary.distributed_line_loads if item["source"] == "surface_self_weight"
+    ]
+    imposed_lines = [
+        item for item in summary.distributed_line_loads if item["source"] == "surface_imposed"
+    ]
 
     assert len(self_weight_lines) == 2
     assert len(imposed_lines) == 2
@@ -126,4 +130,7 @@ def test_platform_result_exposes_simplified_load_trace_without_base_plate_confus
     assert res.base_plate is None
     assert res.platform.load_distribution_method == LoadDistributionMethod.ONE_WAY.value
     assert res.platform.load_surface_components
-    assert any("grating" in note.lower() or "tramex" in note.lower() for note in ctx.engineering_report_state.state_for("load_surfaces").notes)
+    assert any(
+        "grating" in note.lower() or "tramex" in note.lower()
+        for note in ctx.engineering_report_state.state_for("load_surfaces").notes
+    )

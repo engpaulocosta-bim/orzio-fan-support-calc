@@ -19,30 +19,25 @@ import pytest
 
 from sfsc.engineering import (
     CalculationResultState,
-    CalculationModelType,
+    build_phase01_engineering_model,
     determine_connection_state,
     determine_serviceability_state,
-    build_phase01_engineering_model,
 )
+from sfsc.engines.selector import run_full_calculation
 from sfsc.enums import (
     Country,
     FanType,
-    SectionFamily,
-    SteelGrade,
     SupportType,
-    WalkingSurfaceType,
 )
 from sfsc.i18n import Lang, t
 from sfsc.models import (
     CalculationOptions,
     FanSupportInput,
     FanUnit,
-    WalkingSurface,
 )
-from sfsc.engines.selector import run_full_calculation
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_inp(**overrides) -> FanSupportInput:
     data: dict = {
@@ -149,6 +144,7 @@ def test_i18n_engineering_state_keys_translate_via_t():
 
 # ── serviceability not_verified tests ──────────────────────────────────────────
 
+
 def test_serviceability_not_verified_when_no_displacement():
     """When serviceability is enabled but no displacement results, state must be NOT_VERIFIED."""
     state = determine_serviceability_state(
@@ -213,6 +209,7 @@ def test_serviceability_in_engineering_model_is_not_applicable_when_disabled():
 
 # ── connection not_verified tests ─────────────────────────────────────────────
 
+
 def test_connection_not_verified_when_no_rows_but_checks_requested():
     """If checks are requested but no rows produced, state is NOT_VERIFIED."""
     state = determine_connection_state(
@@ -264,6 +261,7 @@ def test_no_connection_row_means_not_verified_in_engineering_model():
 
 
 # ── tramex is not base plate ───────────────────────────────────────────────────
+
 
 def test_tramex_not_labeled_as_base_plate_in_i18n():
     """The tramex surface type must not use 'base plate' terminology in i18n keys."""
@@ -322,6 +320,7 @@ def test_pdf_section_base_plate_label_not_tramex():
 
 # ── PDF/report model does not mark missing checks as verified ─────────────────
 
+
 def test_engineering_report_state_global_frame_for_pedestal():
     """After Phase 03 extension, PEDESTAL uses the global frame solver."""
     inp = _make_inp()
@@ -347,9 +346,7 @@ def test_engineering_report_state_unverified_flag_when_serviceability_enabled():
 
 def test_engineering_model_never_presents_serviceability_as_verified():
     """Serviceability must never be VERIFIED without actual displacement calculation."""
-    inp = _make_inp(
-        calculation_options=CalculationOptions(include_serviceability=True)
-    )
+    inp = _make_inp(calculation_options=CalculationOptions(include_serviceability=True))
     result, _ctx = _run(inp)
     _, report_state = build_phase01_engineering_model(inp, result)
     sls_item = next(item for item in report_state.states if item.id == "serviceability")
@@ -358,16 +355,21 @@ def test_engineering_model_never_presents_serviceability_as_verified():
 
 # ── warning messages for simplified / not verified items ─────────────────────
 
+
 def test_simplified_model_warning_key_present_all_langs():
     for lang in (Lang.EN, Lang.PT, Lang.ES):
         msg = t("warning.model.simplified", lang)
-        assert msg and msg != "warning.model.simplified", f"Missing simplified model warning for {lang}"
+        assert msg and msg != "warning.model.simplified", (
+            f"Missing simplified model warning for {lang}"
+        )
 
 
 def test_serviceability_not_verified_warning_key_present_all_langs():
     for lang in (Lang.EN, Lang.PT, Lang.ES):
         msg = t("warning.serviceability.notVerified", lang)
-        assert msg and msg != "warning.serviceability.notVerified", f"Missing SLS warning for {lang}"
+        assert msg and msg != "warning.serviceability.notVerified", (
+            f"Missing SLS warning for {lang}"
+        )
 
 
 def test_connection_not_verified_warning_keys_present_all_langs():
@@ -386,10 +388,13 @@ def test_connection_not_verified_warning_keys_present_all_langs():
 def test_engineer_review_required_warning_present_all_langs():
     for lang in (Lang.EN, Lang.PT, Lang.ES):
         msg = t("warning.engineer.reviewRequired", lang)
-        assert msg and msg != "warning.engineer.reviewRequired", f"Missing engineer review warning for {lang}"
+        assert msg and msg != "warning.engineer.reviewRequired", (
+            f"Missing engineer review warning for {lang}"
+        )
 
 
 # ── PDF structural section reporting ─────────────────────────────────────────
+
 
 def test_serviceability_section_label_present_all_langs():
     for lang in (Lang.EN, Lang.PT, Lang.ES):
@@ -417,6 +422,7 @@ def test_engineering_warnings_section_label_present_all_langs():
 
 # ── PDF generation smoke test ─────────────────────────────────────────────────
 
+
 def test_pdf_generate_does_not_raise_for_simplified_model():
     """PDF generation must succeed for a typical simplified model calculation."""
     try:
@@ -424,9 +430,9 @@ def test_pdf_generate_does_not_raise_for_simplified_model():
     except ImportError:
         pytest.skip("reportlab not installed")
 
+    from sfsc.engineering import build_phase01_engineering_model
     from sfsc.models import ReportContext, WarningItem
     from sfsc.reports.memorial_pdf import generate_pdf
-    from sfsc.engineering import build_phase01_engineering_model
 
     inp = _make_inp()
     result, _base_ctx = _run(inp)
@@ -466,13 +472,11 @@ def test_pdf_generate_does_not_overstate_serviceability():
     except ImportError:
         pytest.skip("reportlab not installed")
 
+    from sfsc.engineering import build_phase01_engineering_model
     from sfsc.models import ReportContext
     from sfsc.reports.memorial_pdf import generate_pdf
-    from sfsc.engineering import build_phase01_engineering_model
 
-    inp = _make_inp(
-        calculation_options=CalculationOptions(include_serviceability=True)
-    )
+    inp = _make_inp(calculation_options=CalculationOptions(include_serviceability=True))
     result, _base_ctx = _run(inp)
     _, report_state = build_phase01_engineering_model(inp, result)
     sls_item = next(item for item in report_state.states if item.id == "serviceability")

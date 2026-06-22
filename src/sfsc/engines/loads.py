@@ -38,6 +38,8 @@ def calculate_loads(
     if inp.support_type == SupportType.PLATFORM_FRAME_BRACED:
         if support_steel_weight_kg is None:
             steel_length_m = mm_to_m(inp.platform_length_eff_mm) * max(2, inp.platform_n_beams)
+            if inp.has_platform_grillage:
+                steel_length_m += mm_to_m(inp.platform_width_eff_mm) * inp.platform_n_crossbeams
             if inp.cantilever_subtype in (None, CantileverSubtype.BRACKETED):
                 steel_length_m += mm_to_m(
                     (inp.platform_length_eff_mm**2 + inp.installation_height_mm**2) ** 0.5

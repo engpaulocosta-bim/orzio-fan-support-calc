@@ -11,6 +11,13 @@ from ..enums import CantileverSubtype, SupportType
 from ..models import FanSupportInput, LoadCombination, SteelSection
 from ..section_orientation import get_local_section_axis_properties
 from ..units import mm_to_m
+from .grillage import (
+    GrillageMember,
+    GrillageNode,
+    GrillagePointLoad,
+    GrillageSupport,
+    run_grillage_analysis,
+)
 
 _SINGULAR_TOLERANCE = 1e12
 
@@ -187,7 +194,9 @@ def _build_cantilever_1_model(
         )
     ]
     supports = [_Support2D(node_id="node-support", ux=True, uz=True, ry=True)]
-    return _FrameModel2D(nodes=nodes, elements=elements, supports=supports, loaded_node_id="node-tip")
+    return _FrameModel2D(
+        nodes=nodes, elements=elements, supports=supports, loaded_node_id="node-tip"
+    )
 
 
 def _build_hanger_model(
@@ -231,7 +240,9 @@ def _build_hanger_model(
         _Support2D(node_id="node-left", ux=True, uz=True, ry=False),
         _Support2D(node_id="node-right", ux=False, uz=True, ry=False),
     ]
-    return _FrameModel2D(nodes=nodes, elements=elements, supports=supports, loaded_node_id="node-mid")
+    return _FrameModel2D(
+        nodes=nodes, elements=elements, supports=supports, loaded_node_id="node-mid"
+    )
 
 
 def _build_cantilever_2_model(
@@ -305,7 +316,9 @@ def _build_cantilever_3_model(
         _Support2D(node_id="node-base-left", ux=True, uz=True, ry=True),
         _Support2D(node_id="node-base-right", ux=True, uz=True, ry=True),
     ]
-    return _FrameModel2D(nodes=nodes, elements=elements, supports=supports, loaded_node_id="node-top-mid")
+    return _FrameModel2D(
+        nodes=nodes, elements=elements, supports=supports, loaded_node_id="node-top-mid"
+    )
 
 
 def _build_pedestal_model(
@@ -335,7 +348,11 @@ def _build_platform_model(
     elastic_modulus_kN_m2 = get_grade_spec(inp.steel_grade).E_mpa * 1_000.0
     area_m2 = _section_area_m2(section)
     inertia_m4 = _section_inertia_m4(section, orientation_deg)
-    length_m = mm_to_m(inp.platform_length_eff_mm) if inp.platform_length_eff_mm > 0 else mm_to_m(inp.span_mm)
+    length_m = (
+        mm_to_m(inp.platform_length_eff_mm)
+        if inp.platform_length_eff_mm > 0
+        else mm_to_m(inp.span_mm)
+    )
     height_m = mm_to_m(inp.installation_height_mm)
     braced = inp.cantilever_subtype is None or inp.cantilever_subtype == CantileverSubtype.BRACKETED
 
@@ -369,7 +386,9 @@ def _build_platform_model(
             _Support2D(node_id="node-base", ux=True, uz=True, ry=True),
             _Support2D(node_id="node-top", ux=True, uz=True, ry=False),
         ]
-        return _FrameModel2D(nodes=nodes, elements=elements, supports=supports, loaded_node_id="node-tip")
+        return _FrameModel2D(
+            nodes=nodes, elements=elements, supports=supports, loaded_node_id="node-tip"
+        )
 
     # Unbraced: simply-supported beam (one beam of platform)
     half = length_m / 2.0
@@ -402,7 +421,271 @@ def _build_platform_model(
         _Support2D(node_id="node-left", ux=True, uz=True, ry=False),
         _Support2D(node_id="node-right", ux=False, uz=True, ry=False),
     ]
-    return _FrameModel2D(nodes=nodes, elements=elements, supports=supports, loaded_node_id="node-mid")
+    return _FrameModel2D(
+        nodes=nodes, elements=elements, supports=supports, loaded_node_id="node-mid"
+    )
+
+
+def _section_torsion_constant_m4(section: SteelSection) -> float:
+    """Estimate Saint-Venant J from the section dimensions available in the catalog."""
+
+    h_mm = section.h_mm
+    b_mm = section.b_mm
+    tw_mm = section.tw_mm
+    tf_mm = section.tf_mm
+    if section.family.value == "RHS":
+        median_h_mm = max(h_mm - tf_mm, 1e-6)
+        median_b_mm = max(b_mm - tw_mm, 1e-6)
+        enclosed_area_mm2 = median_h_mm * median_b_mm
+        wall_sum = 2.0 * median_h_mm / max(tw_mm, 1e-6) + 2.0 * median_b_mm / max(tf_mm, 1e-6)
+        torsion_mm4 = 4.0 * enclosed_area_mm2**2 / wall_sum
+    else:
+        web_height_mm = max(h_mm - 2.0 * tf_mm, 0.0)
+        torsion_mm4 = (2.0 * b_mm * tf_mm**3 + web_height_mm * tw_mm**3) / 3.0
+    return max(torsion_mm4 * 1e-12, 1e-16)
+
+
+def _platform_grillage_geometry(
+    inp: FanSupportInput,
+    section: SteelSection,
+    orientation_deg: float,
+) -> tuple[
+    list[GrillageNode],
+    list[GrillageMember],
+    list[GrillageSupport],
+    list[str],
+]:
+    grade = get_grade_spec(inp.steel_grade)
+    elastic_modulus_kN_m2 = grade.E_mpa * 1_000.0
+    shear_modulus_kN_m2 = grade.G_mpa * 1_000.0
+    inertia_m4 = _section_inertia_m4(section, orientation_deg)
+    torsion_constant_m4 = _section_torsion_constant_m4(section)
+    length_m = mm_to_m(inp.platform_length_eff_mm)
+    width_m = mm_to_m(inp.platform_width_eff_mm)
+    n_longitudinal = max(2, inp.platform_n_beams)
+    n_crossbeams = max(2, inp.platform_n_crossbeams)
+    x_positions = np.linspace(0.0, length_m, n_crossbeams)
+    y_positions = np.linspace(0.0, width_m, n_longitudinal)
+
+    nodes = [
+        GrillageNode(
+            id=f"grid-{cross_index}-{long_index}",
+            x_m=float(x_m),
+            y_m=float(y_m),
+        )
+        for long_index, y_m in enumerate(y_positions)
+        for cross_index, x_m in enumerate(x_positions)
+    ]
+    members: list[GrillageMember] = []
+    for long_index in range(n_longitudinal):
+        for cross_index in range(n_crossbeams - 1):
+            members.append(
+                GrillageMember(
+                    id=f"beam-{long_index + 1}-{cross_index + 1}",
+                    node_i=f"grid-{cross_index}-{long_index}",
+                    node_j=f"grid-{cross_index + 1}-{long_index}",
+                    elastic_modulus_kN_m2=elastic_modulus_kN_m2,
+                    shear_modulus_kN_m2=shear_modulus_kN_m2,
+                    inertia_m4=inertia_m4,
+                    torsion_constant_m4=torsion_constant_m4,
+                    direction="longitudinal",
+                )
+            )
+    for cross_index in range(n_crossbeams):
+        for long_index in range(n_longitudinal - 1):
+            members.append(
+                GrillageMember(
+                    id=f"crossbeam-{cross_index + 1}-{long_index + 1}",
+                    node_i=f"grid-{cross_index}-{long_index}",
+                    node_j=f"grid-{cross_index}-{long_index + 1}",
+                    elastic_modulus_kN_m2=elastic_modulus_kN_m2,
+                    shear_modulus_kN_m2=shear_modulus_kN_m2,
+                    inertia_m4=inertia_m4,
+                    torsion_constant_m4=torsion_constant_m4,
+                    direction="transverse",
+                )
+            )
+
+    braced = inp.cantilever_subtype is None or inp.cantilever_subtype == CantileverSubtype.BRACKETED
+    if braced:
+        supports = [
+            GrillageSupport(
+                node_id=f"grid-0-{long_index}",
+                w=True,
+                rx=True,
+                ry=True,
+            )
+            for long_index in range(n_longitudinal)
+        ]
+    else:
+        supports = [
+            GrillageSupport("grid-0-0", w=True),
+            GrillageSupport(f"grid-{n_crossbeams - 1}-0", w=True),
+            GrillageSupport(f"grid-0-{n_longitudinal - 1}", w=True),
+            GrillageSupport(
+                f"grid-{n_crossbeams - 1}-{n_longitudinal - 1}",
+                w=True,
+            ),
+        ]
+
+    centre_distance = min(
+        (node.x_m - length_m / 2.0) ** 2 + (node.y_m - width_m / 2.0) ** 2 for node in nodes
+    )
+    loaded_node_ids = [
+        node.id
+        for node in nodes
+        if abs((node.x_m - length_m / 2.0) ** 2 + (node.y_m - width_m / 2.0) ** 2 - centre_distance)
+        <= 1e-12
+    ]
+    return nodes, members, supports, loaded_node_ids
+
+
+def _run_platform_grillage_analysis(
+    inp: FanSupportInput,
+    combinations: list[LoadCombination],
+    section: SteelSection,
+    orientation_deg: float,
+) -> GlobalFrameAnalysisResult:
+    nodes, members, supports, loaded_node_ids = _platform_grillage_geometry(
+        inp,
+        section,
+        orientation_deg,
+    )
+    warnings = [
+        (
+            "Platform vertical response solved with a 2.5D grillage. "
+            "Horizontal brace response remains covered by the separate diagonal check."
+        )
+    ]
+    reactions: list[dict[str, object]] = []
+    displacements: list[dict[str, object]] = []
+    member_end_forces: list[dict[str, object]] = []
+
+    for combination in combinations:
+        load_share_kN = abs(combination.V_z_kN) / len(loaded_node_ids)
+        eccentricity_m = mm_to_m(inp.eccentricity_mm)
+        loads = [
+            GrillagePointLoad(
+                node_id=node_id,
+                downward_kN=load_share_kN,
+                moment_y_kNm=-load_share_kN * eccentricity_m,
+            )
+            for node_id in loaded_node_ids
+        ]
+        result = run_grillage_analysis(nodes, members, supports, loads)
+        if result.failed or not result.solved:
+            return GlobalFrameAnalysisResult(
+                supported=True,
+                solved=False,
+                failed=True,
+                warnings=warnings + result.warnings,
+                nodes=[
+                    {
+                        "id": node.id,
+                        "x_m": node.x_m,
+                        "y_m": node.y_m,
+                        "z_m": mm_to_m(inp.installation_height_mm),
+                    }
+                    for node in nodes
+                ],
+                members=[
+                    {
+                        "id": member.id,
+                        "node_i": member.node_i,
+                        "node_j": member.node_j,
+                        "kind": "frame",
+                        "direction": member.direction,
+                    }
+                    for member in members
+                ],
+                supports=[],
+                releases=[],
+                reactions=[],
+                displacements=[],
+                member_end_forces=[],
+            )
+        reactions.extend(
+            {
+                "combination": combination.name,
+                "node_id": row["node_id"],
+                "reaction_fx_kN": 0.0,
+                "reaction_fz_kN": row["reaction_fz_kN"],
+                "reaction_mx_kNm": row["reaction_mx_kNm"],
+                "reaction_my_kNm": row["reaction_my_kNm"],
+            }
+            for row in result.reactions
+        )
+        displacements.extend(
+            {
+                "combination": combination.name,
+                "node_id": row["node_id"],
+                "ux_m": 0.0,
+                "uz_m": row["w_m"],
+                "rx_rad": row["rx_rad"],
+                "ry_rad": row["ry_rad"],
+            }
+            for row in result.displacements
+        )
+        member_end_forces.extend(
+            {
+                "combination": combination.name,
+                "member_id": row["member_id"],
+                "member_kind": "frame",
+                "member_direction": row["member_direction"],
+                "node_i": row["node_i"],
+                "node_j": row["node_j"],
+                "N_i_kN": 0.0,
+                "V_i_kN": row["V_i_kN"],
+                "M_i_kNm": row["M_i_kNm"],
+                "T_i_kNm": row["T_i_kNm"],
+                "N_j_kN": 0.0,
+                "V_j_kN": row["V_j_kN"],
+                "M_j_kNm": row["M_j_kNm"],
+                "T_j_kNm": row["T_j_kNm"],
+            }
+            for row in result.member_end_forces
+        )
+
+    return GlobalFrameAnalysisResult(
+        supported=True,
+        solved=True,
+        failed=False,
+        warnings=warnings,
+        nodes=[
+            {
+                "id": node.id,
+                "x_m": node.x_m,
+                "y_m": node.y_m,
+                "z_m": mm_to_m(inp.installation_height_mm),
+            }
+            for node in nodes
+        ],
+        members=[
+            {
+                "id": member.id,
+                "node_i": member.node_i,
+                "node_j": member.node_j,
+                "kind": "frame",
+                "direction": member.direction,
+            }
+            for member in members
+        ],
+        supports=[
+            {
+                "node_id": support.node_id,
+                "w": support.w,
+                "rx": support.rx,
+                "ry": support.ry,
+                "ux": support.rx,
+                "uz": support.w,
+            }
+            for support in supports
+        ],
+        releases=[],
+        reactions=reactions,
+        displacements=displacements,
+        member_end_forces=member_end_forces,
+    )
 
 
 def _build_model(
@@ -448,6 +731,14 @@ def run_global_frame_analysis(
             reactions=[],
             displacements=[],
             member_end_forces=[],
+        )
+
+    if inp.support_type == SupportType.PLATFORM_FRAME_BRACED and inp.has_platform_grillage:
+        return _run_platform_grillage_analysis(
+            inp,
+            combinations,
+            section,
+            orientation_deg,
         )
 
     model, warnings = _build_model(inp, section, orientation_deg)
@@ -561,10 +852,7 @@ def run_global_frame_analysis(
                 warnings=[
                     f"Global frame solver instability detected for combination '{combo.name}'."
                 ],
-                nodes=[
-                    {"id": node.id, "x_m": node.x_m, "z_m": node.z_m}
-                    for node in model.nodes
-                ],
+                nodes=[{"id": node.id, "x_m": node.x_m, "z_m": node.z_m} for node in model.nodes],
                 members=[
                     {
                         "id": element.id,
