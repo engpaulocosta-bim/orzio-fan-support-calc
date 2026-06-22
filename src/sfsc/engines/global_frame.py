@@ -11,10 +11,14 @@ from ..enums import CantileverSubtype, SupportType
 from ..models import FanSupportInput, LoadCombination, SteelSection
 from ..section_orientation import get_local_section_axis_properties
 from ..units import mm_to_m
+from .fan_array import (
+    array_loaded_node_ids_for_modal,
+    build_array_point_loads,
+    build_centre_point_loads,
+)
 from .grillage import (
     GrillageMember,
     GrillageNode,
-    GrillagePointLoad,
     GrillageSupport,
     build_grillage_stiffness,
     run_grillage_analysis,
@@ -564,16 +568,24 @@ def _run_platform_grillage_analysis(
     member_end_forces: list[dict[str, object]] = []
 
     for combination in combinations:
-        load_share_kN = abs(combination.V_z_kN) / len(loaded_node_ids)
+        total_kN = abs(combination.V_z_kN)
         eccentricity_m = mm_to_m(inp.eccentricity_mm)
-        loads = [
-            GrillagePointLoad(
-                node_id=node_id,
-                downward_kN=load_share_kN,
-                moment_y_kNm=-load_share_kN * eccentricity_m,
+        if inp.fan_array is not None:
+            loads, _combo_loaded = build_array_point_loads(
+                fan_array=inp.fan_array,
+                nodes=nodes,
+                platform_length_mm=inp.platform_length_eff_mm,
+                platform_width_mm=inp.platform_width_eff_mm,
+                total_load_kN=total_kN,
             )
-            for node_id in loaded_node_ids
-        ]
+        else:
+            loads, _combo_loaded = build_centre_point_loads(
+                nodes=nodes,
+                platform_length_mm=inp.platform_length_eff_mm,
+                platform_width_mm=inp.platform_width_eff_mm,
+                total_load_kN=total_kN,
+                eccentricity_moment_kNm=-total_kN * eccentricity_m,
+            )
         result = run_grillage_analysis(nodes, members, supports, loads)
         if result.failed or not result.solved:
             return GlobalFrameAnalysisResult(
@@ -723,13 +735,24 @@ def run_platform_modal_analysis(
 
     k_ff, free_dofs = stiffness_result
     section_area_m2 = section.A_cm2 * 1e-4
-    equipment_mass_kg = sum(unit.operating_weight_kg for unit in inp.fan_units)
+    equipment_mass_kg = inp.total_operating_weight_kg
+
+    # Quando existe array, os nós de massa são as posições reais dos ventiladores.
+    if inp.fan_array is not None:
+        modal_loaded_node_ids = array_loaded_node_ids_for_modal(
+            fan_array=inp.fan_array,
+            nodes=nodes,
+            platform_length_mm=inp.platform_length_eff_mm,
+            platform_width_mm=inp.platform_width_eff_mm,
+        )
+    else:
+        modal_loaded_node_ids = loaded_node_ids
 
     return run_modal_analysis(
         nodes=nodes,
         members=members,
         supports=supports,
-        loaded_node_ids=loaded_node_ids,
+        loaded_node_ids=modal_loaded_node_ids,
         stiffness_ff=k_ff,
         free_dofs=free_dofs,
         steel_density_kg_m3=7850.0,

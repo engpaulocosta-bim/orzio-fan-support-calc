@@ -337,6 +337,49 @@ class FanUnit(BaseModel):
         return self
 
 
+class FanArray(BaseModel):
+    """Array de ventiladores iguais dispostos em matriz (linhas × colunas).
+
+    O utilizador define os dados de UMA unidade-padrão e o sistema replica em
+    matriz. As cargas são posicionadas na grelha nas coordenadas reais de cada
+    unidade, em vez de serem somadas e divididas aritmeticamente.
+
+    Compatibilidade: quando ``fan_array`` está presente em ``FanSupportInput``,
+    as cargas dos ventiladores usam posicionamento real na grelha. Quando ausente,
+    o comportamento legado (carga total dividida pelos nós centrais) mantém-se.
+    """
+
+    rows: int = Field(ge=1, description="Número de linhas do array (direcção Y — largura)")
+    columns: int = Field(ge=1, description="Número de colunas do array (direcção X — comprimento)")
+    row_pitch_mm: float = Field(
+        gt=0, description="Passo entre unidades na direcção Y (largura) [mm]"
+    )
+    column_pitch_mm: float = Field(
+        gt=0, description="Passo entre unidades na direcção X (comprimento) [mm]"
+    )
+    unit: FanUnit = Field(description="Dados de uma unidade de ventilador (replicada no array)")
+    offset_x_mm: float = Field(
+        default=0.0,
+        description="Deslocamento do centro do array em X relativamente ao centro da plataforma [mm]",
+    )
+    offset_y_mm: float = Field(
+        default=0.0,
+        description="Deslocamento do centro do array em Y relativamente ao centro da plataforma [mm]",
+    )
+
+    @property
+    def n_units(self) -> int:
+        return self.rows * self.columns
+
+    @property
+    def total_operating_weight_kg(self) -> float:
+        return self.unit.operating_weight_kg * self.n_units
+
+    @property
+    def total_weight_kg(self) -> float:
+        return self.unit.weight_kg * self.n_units
+
+
 # ── Input principal ────────────────────────────────────────────────────────────
 
 
@@ -460,6 +503,14 @@ class FanSupportInput(BaseModel):
     section_orientation: SectionOrientation = SectionOrientation.STRONG_AXIS_VERTICAL
     section_rotation_deg: float | None = None
     manual_loads: list[ManualLoad] = Field(default_factory=list)
+    fan_array: FanArray | None = Field(
+        default=None,
+        description=(
+            "Array de ventiladores iguais em matriz. Quando definido, substitui fan_units "
+            "para o posicionamento de cargas na grelha. fan_units deve conter pelo menos uma "
+            "unidade de referência para compatibilidade com o resto do sistema."
+        ),
+    )
     imported_model: ImportedModelPayload | None = None
     imported_model_confirmed: bool = False
     imported_model_confirmation_notes: str = ""
@@ -511,6 +562,8 @@ class FanSupportInput(BaseModel):
 
     @property
     def total_operating_weight_kg(self) -> float:
+        if self.fan_array is not None:
+            return self.fan_array.total_operating_weight_kg
         return sum(u.operating_weight_kg for u in self.fan_units)
 
     @property
