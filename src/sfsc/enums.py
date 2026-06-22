@@ -200,6 +200,7 @@ class ModuleId(str, Enum):
     SERVICEABILITY = "serviceability"
     LOAD_DISTRIBUTION_SURFACE = "load_distribution_surface"
     MODAL_FREQUENCY = "modal_frequency"
+    RECEIVING_MEMBER = "receiving_member"
 
 
 class ServiceabilityLimit(str, Enum):
