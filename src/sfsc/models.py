@@ -65,6 +65,7 @@ class CalculationOptions(BaseModel):
         gt=0.0,
         description="Frequência de excitação do ventilador [Hz]. None = derivar de speed_rpm.",
     )
+    include_receiving_member: bool = False
 
     @model_validator(mode="after")
     def _validate_serviceability_limit(self) -> CalculationOptions:

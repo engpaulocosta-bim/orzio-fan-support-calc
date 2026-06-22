@@ -55,6 +55,11 @@ from .loads import calculate_loads
 from .metal_connections import calculate_metal_connection
 from .modal_analysis import ModalAnalysisResult
 from .quantities import calculate_quantities
+from .receiving_member import (
+    ReceivingMemberResult,
+    resolve_receiving_member_section,
+    run_receiving_member_check,
+)
 from .section_verifier import (
     MAX_UTILIZATION,
     auto_select_section,
@@ -1146,6 +1151,7 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             warn_items.append(
                 WarningItem(code="W-ANC", severity="WARNING", message=w, module="anchor")
             )
+    recv_result: ReceivingMemberResult | None = None
     if is_steel_fix and not is_benchmark:
         steel_fix_result = calculate_steel_fixation(inp, governing_member, section=section)
         citations.append(
@@ -1155,17 +1161,90 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
                 description="Fixação aço-aço: parafusos, esmagamento, soldaduras e chapa",
             )
         )
-        warn_items.append(
-            WarningItem(
-                code="W-STEELFIX-RECEIVER",
-                severity="WARNING",
-                message=(
-                    "Elemento receptor (perfil existente) não verificado por este "
-                    "modelo - verificar separadamente."
-                ),
-                module="steel_fixation",
-            )
+
+        recv_section_id = (
+            inp.steel_fixation.receiving_member_section_id if inp.steel_fixation else None
         )
+        recv_material_str = (
+            inp.steel_fixation.receiving_member_material if inp.steel_fixation else None
+        )
+        include_recv = opts.include_receiving_member and recv_section_id is not None
+
+        if include_recv and recv_section_id is not None:
+            recv_section = resolve_receiving_member_section(recv_section_id)
+            if recv_section is not None:
+                try:
+                    from ..enums import SteelGrade as _SteelGrade
+
+                    recv_grade = (
+                        _SteelGrade(recv_material_str) if recv_material_str else inp.steel_grade
+                    )
+                except ValueError:
+                    recv_grade = inp.steel_grade
+                recv_result = run_receiving_member_check(
+                    section=recv_section,
+                    steel_grade=recv_grade,
+                    combination=governing_member,
+                    support_section_width_mm=float(section.b_mm) if section else None,
+                )
+                citations.append(
+                    CitationItem(
+                        standard_id="EN1993-1-1",
+                        clause="cl. 6.2.4 + 6.2.5 + 6.2.6 + 6.2.7 + 6.2.8",
+                        description="Verificação do perfil receptor: axial, flexão, corte, torção e interacções",
+                    )
+                )
+                if recv_result.eta_overall > 1.0:
+                    warn_items.append(
+                        WarningItem(
+                            code="W-RECV-001",
+                            severity="CRITICAL",
+                            message=(
+                                f"Perfil receptor {recv_section_id} insuficiente: "
+                                f"η={recv_result.eta_overall:.3f} ({recv_result.governing_check})."
+                            ),
+                            module="receiving_member",
+                        )
+                    )
+                # Registo na fixação de que o receptor foi verificado.
+                steel_fix_result = steel_fix_result.model_copy(
+                    update={"receiving_member_checked": True}
+                )
+            else:
+                warn_items.append(
+                    WarningItem(
+                        code="W-RECV-SECTION-NF",
+                        severity="WARNING",
+                        message=(
+                            f"Perfil receptor '{recv_section_id}' não encontrado no catálogo. "
+                            "Verificar separadamente."
+                        ),
+                        module="receiving_member",
+                    )
+                )
+                warn_items.append(
+                    WarningItem(
+                        code="W-STEELFIX-RECEIVER",
+                        severity="WARNING",
+                        message=(
+                            "Elemento receptor (perfil existente) não verificado por este "
+                            "modelo - verificar separadamente."
+                        ),
+                        module="steel_fixation",
+                    )
+                )
+        else:
+            warn_items.append(
+                WarningItem(
+                    code="W-STEELFIX-RECEIVER",
+                    severity="WARNING",
+                    message=(
+                        "Elemento receptor (perfil existente) não verificado por este "
+                        "modelo - verificar separadamente."
+                    ),
+                    module="steel_fixation",
+                )
+            )
 
     metal_conn_result = None
     if section and eff_steel_conn:
@@ -1342,6 +1421,68 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             )
         )
 
+    if is_steel_fix and opts.include_receiving_member:
+        if recv_result is not None and recv_result.solved:
+            breakdown.append(
+                CheckResult(
+                    id=ModuleId.RECEIVING_MEMBER,
+                    label_key="calculation.modules.receivingMember",
+                    eta=round(recv_result.eta_overall, 4),
+                    status=(classify_eta(recv_result.eta_overall)),
+                    clause_refs=["EN 1993-1-1 cl. 6.2.4–6.2.8"],
+                    messages=[
+                        _msg(
+                            "critical" if recv_result.eta_overall > 1.0 else "info",
+                            "warning.receivingMember.failed"
+                            if recv_result.eta_overall > 1.0
+                            else "warning.receivingMember.verified",
+                        )
+                    ],
+                    inputs={
+                        "section_id": recv_result.section_id,
+                        "material": recv_result.material,
+                        "governing_check": recv_result.governing_check,
+                    },
+                    intermediate_values={
+                        k: float(v)
+                        for k, v in recv_result.intermediate.items()
+                        if isinstance(v, (int, float))
+                    },
+                )
+            )
+        else:
+            reason_key = (
+                "warning.receivingMember.sectionNotFound"
+                if recv_result is None
+                else "warning.receivingMember.solverFailed"
+            )
+            breakdown.append(
+                CheckResult(
+                    id=ModuleId.RECEIVING_MEMBER,
+                    label_key="calculation.modules.receivingMember",
+                    status=CheckStatus.NOT_CHECKED,
+                    messages=[_msg("warning", reason_key)],
+                )
+            )
+    elif is_steel_fix and not opts.include_receiving_member:
+        breakdown.append(
+            CheckResult(
+                id=ModuleId.RECEIVING_MEMBER,
+                label_key="calculation.modules.receivingMember",
+                status=CheckStatus.NOT_CHECKED,
+                messages=[_msg("warning", "warning.receivingMember.disabled")],
+            )
+        )
+    else:
+        breakdown.append(
+            CheckResult(
+                id=ModuleId.RECEIVING_MEMBER,
+                label_key="calculation.modules.receivingMember",
+                status=CheckStatus.NOT_CHECKED,
+                messages=[_msg("warning", "warning.receivingMember.notSteelFixation")],
+            )
+        )
+
     breakdown.append(
         CheckResult(
             id=ModuleId.SEISMIC_EQUIVALENT_STATIC,
@@ -1450,16 +1591,11 @@ def run_full_calculation(inp: FanSupportInput) -> ReportContext:
             modal_eta = (
                 max(modal_result.frequency_ratios) / 1.3
                 if modal_result.resonance_violated
-                else min(
-                    abs(r - 1.0) / 0.3
-                    for r in modal_result.frequency_ratios
-                )
+                else min(abs(r - 1.0) / 0.3 for r in modal_result.frequency_ratios)
                 if modal_result.frequency_ratios
                 else None
             )
-            modal_status = (
-                CheckStatus.FAIL if modal_result.resonance_violated else CheckStatus.OK
-            )
+            modal_status = CheckStatus.FAIL if modal_result.resonance_violated else CheckStatus.OK
             breakdown.append(
                 CheckResult(
                     id=ModuleId.MODAL_FREQUENCY,
